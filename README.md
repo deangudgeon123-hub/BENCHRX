@@ -117,3 +117,5 @@ If the core benchmark proves valuable, BENCHRX can expand into:
 Early development.
 
 The immediate priority is the V1 benchmark engine and scorecard experience.
+
+<!-- deployment trigger: 2026-08-28 -->
