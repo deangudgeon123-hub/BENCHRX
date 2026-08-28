@@ -16,7 +16,8 @@ export default function BenchmarkPage() {
     setSuccess(null);
     setIsSubmitting(true);
 
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const payload = {
       name: String(form.get("name") ?? ""),
       category: String(form.get("category") ?? "general"),
@@ -38,7 +39,7 @@ export default function BenchmarkPage() {
       }
 
       setSuccess({ name: data.agent.name, slug: data.agent.slug });
-      event.currentTarget.reset();
+      formElement.reset();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
