@@ -8,11 +8,12 @@ from typing import Any
 import httpx
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI, HTTPException
+from pydantic import BaseModel
 from supabase import Client, create_client
 
 load_dotenv()
 
-app = FastAPI(title="BENCHRX Worker", version="0.3.0")
+app = FastAPI(title="BENCHRX Worker", version="0.4.0")
 
 TESTS = [
     {
@@ -61,6 +62,10 @@ TESTS = [
         "message": None,
     },
 ]
+
+
+class TriggerPayload(BaseModel):
+    run_id: str
 
 
 def utc_now_iso() -> str:
@@ -216,22 +221,27 @@ def category_score(results: list[dict[str, Any]], category: str) -> float:
     return round(weighted / total_weight, 2)
 
 
-async def execute_next_run() -> dict[str, Any]:
+async def execute_run(run_id: str) -> dict[str, Any]:
     supabase = get_supabase()
-    queued = (
+
+    run_result = (
         supabase.table("benchmark_runs")
         .select("id,agent_id,status,created_at")
-        .eq("status", "queued")
-        .order("created_at")
-        .limit(1)
+        .eq("id", run_id)
+        .single()
         .execute()
     )
+    run = run_result.data
 
-    if not queued.data:
-        return {"status": "idle", "message": "No queued benchmark runs."}
+    if not run:
+        raise RuntimeError("Benchmark run not found")
 
-    run = queued.data[0]
-    run_id = run["id"]
+    if run["status"] == "completed":
+        return {"status": "completed", "run_id": run_id}
+
+    if run["status"] not in {"queued", "running"}:
+        return {"status": run["status"], "run_id": run_id}
+
     agent_id = run["agent_id"]
     supabase.table("benchmark_runs").update({"status": "running", "started_at": utc_now_iso()}).eq("id", run_id).execute()
 
@@ -291,15 +301,15 @@ async def execute_next_run() -> dict[str, Any]:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "version": "0.3.0"}
+    return {"status": "ok", "version": "0.4.0"}
 
 
 @app.post("/trigger")
-async def trigger(background_tasks: BackgroundTasks) -> dict[str, str]:
-    background_tasks.add_task(execute_next_run)
-    return {"status": "accepted"}
+async def trigger(payload: TriggerPayload, background_tasks: BackgroundTasks) -> dict[str, str]:
+    background_tasks.add_task(execute_run, payload.run_id)
+    return {"status": "accepted", "run_id": payload.run_id}
 
 
 @app.post("/run-next")
-async def run_next() -> dict[str, Any]:
-    return await execute_next_run()
+async def run_next(payload: TriggerPayload) -> dict[str, Any]:
+    return await execute_run(payload.run_id)
