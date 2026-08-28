@@ -1,4 +1,4 @@
-import { after, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 function makeSlug(name: string) {
@@ -37,22 +37,14 @@ async function triggerBenchmarkWorker() {
     headers.Authorization = `Bearer ${process.env.BENCHMARK_API_SECRET}`;
   }
 
-  try {
-    const response = await fetch(`${workerBaseUrl}/run-next`, {
-      method: "POST",
-      headers,
-      cache: "no-store",
-    });
+  const response = await fetch(`${workerBaseUrl}/trigger`, {
+    method: "POST",
+    headers,
+    cache: "no-store",
+  });
 
-    if (!response.ok) {
-      console.error(
-        "BENCHRX worker trigger failed",
-        response.status,
-        await response.text()
-      );
-    }
-  } catch (error) {
-    console.error("BENCHRX worker trigger failed", error);
+  if (!response.ok) {
+    throw new Error(`BENCHRX worker trigger failed with ${response.status}`);
   }
 }
 
@@ -163,22 +155,26 @@ export async function POST(request: Request) {
 
     if (benchmarkError || !benchmarkRun) {
       console.error("Supabase benchmark run insert failed", benchmarkError);
-
       await supabase.from("agents").delete().eq("id", agent.id);
-
       return NextResponse.json(
         { error: "Agent was not saved because its benchmark run could not be queued." },
         { status: 500 }
       );
     }
 
-    after(triggerBenchmarkWorker);
+    let benchmarkTriggered = false;
+    try {
+      await triggerBenchmarkWorker();
+      benchmarkTriggered = true;
+    } catch (error) {
+      console.error("BENCHRX worker trigger failed", error);
+    }
 
     return NextResponse.json(
       {
         agent,
         benchmarkRun,
-        benchmarkTriggered: true,
+        benchmarkTriggered,
       },
       { status: 201 }
     );
