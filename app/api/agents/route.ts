@@ -13,6 +13,17 @@ function makeSlug(name: string) {
   return `${base || "agent"}-${suffix}`;
 }
 
+function getServerSupabase() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceRoleKey) return null;
+
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
 async function triggerBenchmarkWorker() {
   const workerBaseUrl = (
     process.env.BENCHMARK_API_URL || "https://benchrx-worker.onrender.com"
@@ -45,6 +56,50 @@ async function triggerBenchmarkWorker() {
   }
 }
 
+export async function GET() {
+  const supabase = getServerSupabase();
+
+  if (!supabase) {
+    return NextResponse.json({ error: "Server configuration is incomplete." }, { status: 500 });
+  }
+
+  const { data: agents, error } = await supabase
+    .from("agents")
+    .select("id,name,slug,category,created_at")
+    .eq("is_public", true)
+    .order("created_at", { ascending: false })
+    .limit(8);
+
+  if (error) {
+    console.error("Recent agents query failed", error);
+    return NextResponse.json({ error: "Could not load recent benchmarks." }, { status: 500 });
+  }
+
+  const recent = await Promise.all(
+    (agents ?? []).map(async (agent) => {
+      const { data: runs } = await supabase
+        .from("benchmark_runs")
+        .select("status,production_score,created_at,completed_at")
+        .eq("agent_id", agent.id)
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      const run = runs?.[0] ?? null;
+
+      return {
+        name: agent.name,
+        slug: agent.slug,
+        category: agent.category,
+        createdAt: agent.created_at,
+        status: run?.status ?? "queued",
+        score: run?.production_score ?? null,
+      };
+    })
+  );
+
+  return NextResponse.json({ recent });
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -71,17 +126,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Agent endpoint must use HTTP or HTTPS." }, { status: 400 });
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabase = getServerSupabase();
 
-    if (!supabaseUrl || !serviceRoleKey) {
+    if (!supabase) {
       console.error("Missing Supabase server environment variables");
       return NextResponse.json({ error: "Server configuration is incomplete." }, { status: 500 });
     }
-
-    const supabase = createClient(supabaseUrl, serviceRoleKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
 
     const { data: agent, error: agentError } = await supabase
       .from("agents")
