@@ -118,7 +118,7 @@ export default function BenchmarkPage() {
               <CheckCircle2 className="mt-0.5 shrink-0" size={18} />
               <div>
                 <p className="font-bold">{success.name} was saved and queued.</p>
-                <p className="mt-1 text-emerald-100/70">Run the BENCHRX worker, then refresh the public scorecard once the benchmark completes.</p>
+                <p className="mt-1 text-emerald-100/70">BENCHRX has started the benchmark automatically. Free workers can take a little longer to wake up.</p>
                 <Link
                   href={`/agents/${success.slug}`}
                   className="mt-3 inline-flex rounded-full border border-emerald-300/20 px-4 py-2 font-bold text-emerald-50 transition hover:border-emerald-200/50"
@@ -139,7 +139,7 @@ export default function BenchmarkPage() {
           </button>
 
           <p className="text-center text-xs leading-5 text-[var(--muted)]">
-            Saving creates a queued benchmark run. The worker completes the test suite and publishes the scorecard.
+            Saving queues the benchmark and triggers the hosted BENCHRX worker automatically.
           </p>
         </form>
       </section>
