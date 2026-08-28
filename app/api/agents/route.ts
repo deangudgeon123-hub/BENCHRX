@@ -24,7 +24,7 @@ function getServerSupabase() {
   });
 }
 
-async function triggerBenchmarkWorker() {
+async function triggerBenchmarkWorker(runId: string) {
   const workerBaseUrl = (
     process.env.BENCHMARK_API_URL || "https://benchrx-worker.onrender.com"
   ).replace(/\/$/, "");
@@ -40,6 +40,7 @@ async function triggerBenchmarkWorker() {
   const response = await fetch(`${workerBaseUrl}/trigger`, {
     method: "POST",
     headers,
+    body: JSON.stringify({ run_id: runId }),
     cache: "no-store",
   });
 
@@ -164,7 +165,7 @@ export async function POST(request: Request) {
 
     let benchmarkTriggered = false;
     try {
-      await triggerBenchmarkWorker();
+      await triggerBenchmarkWorker(benchmarkRun.id);
       benchmarkTriggered = true;
     } catch (error) {
       console.error("BENCHRX worker trigger failed", error);
