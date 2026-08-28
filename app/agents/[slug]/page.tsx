@@ -10,6 +10,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
+import { BenchmarkPending } from "@/components/benchmark-pending";
 
 export const dynamic = "force-dynamic";
 
@@ -128,10 +129,10 @@ export default async function AgentScorecardPage({ params }: PageProps) {
 
       <section className="mx-auto max-w-6xl px-6 py-12 sm:py-16">
         <Link
-          href="/"
+          href="/benchmark"
           className="inline-flex items-center gap-2 text-sm text-[var(--muted)] transition hover:text-white"
         >
-          <ArrowLeft size={16} /> Back to BENCHRX
+          <ArrowLeft size={16} /> Back to benchmarks
         </Link>
 
         <div className="mt-10 flex flex-col gap-6 border-b border-white/8 pb-10 lg:flex-row lg:items-end lg:justify-between">
@@ -164,18 +165,15 @@ export default async function AgentScorecardPage({ params }: PageProps) {
         </div>
 
         {!run ? (
-          <div className="mt-10 rounded-3xl border border-white/8 bg-[var(--surface)] p-8 sm:p-10">
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--accent)]">
-              Benchmark pending
-            </p>
-            <h2 className="mt-3 text-2xl font-black">No completed benchmark yet.</h2>
-            <p className="mt-3 max-w-2xl leading-7 text-[var(--muted)]">
-              This agent is registered with BENCHRX, but its first completed production-readiness score is not available yet.
-            </p>
-          </div>
+          <BenchmarkPending />
         ) : (
           <>
-            <div className="mt-10 grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
+            <div className="mt-10 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-5 py-4 text-emerald-100">
+              <p className="font-black">Benchmark ready</p>
+              <p className="mt-1 text-sm text-emerald-100/70">Testing is complete and your BENCHRX score is ready below.</p>
+            </div>
+
+            <div className="mt-6 grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
               <div className="relative overflow-hidden rounded-3xl border border-[var(--accent)]/20 bg-[var(--surface)] p-8 sm:p-10">
                 <div className="absolute right-0 top-0 h-44 w-44 rounded-full bg-[var(--accent)]/8 blur-3xl" />
                 <div className="relative">
