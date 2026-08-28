@@ -51,7 +51,7 @@ export async function POST(request: Request) {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    const { data, error } = await supabase
+    const { data: agent, error: agentError } = await supabase
       .from("agents")
       .insert({
         name,
@@ -61,15 +61,42 @@ export async function POST(request: Request) {
         endpoint_url: parsedUrl.toString(),
         is_public: true,
       })
-      .select("id,name,slug,category,endpoint_url,created_at")
+      .select("id,name,slug,category,endpoint_url,workspace_id,created_at")
       .single();
 
-    if (error) {
-      console.error("Supabase agent insert failed", error);
+    if (agentError || !agent) {
+      console.error("Supabase agent insert failed", agentError);
       return NextResponse.json({ error: "Could not save this agent." }, { status: 500 });
     }
 
-    return NextResponse.json({ agent: data }, { status: 201 });
+    const { data: benchmarkRun, error: benchmarkError } = await supabase
+      .from("benchmark_runs")
+      .insert({
+        agent_id: agent.id,
+        workspace_id: agent.workspace_id,
+        status: "queued",
+      })
+      .select("id,status,created_at")
+      .single();
+
+    if (benchmarkError || !benchmarkRun) {
+      console.error("Supabase benchmark run insert failed", benchmarkError);
+
+      await supabase.from("agents").delete().eq("id", agent.id);
+
+      return NextResponse.json(
+        { error: "Agent was not saved because its benchmark run could not be queued." },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json(
+      {
+        agent,
+        benchmarkRun,
+      },
+      { status: 201 }
+    );
   } catch (error) {
     console.error("Agent submission failed", error);
     return NextResponse.json({ error: "Something went wrong." }, { status: 500 });
