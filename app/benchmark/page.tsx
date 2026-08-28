@@ -1,14 +1,47 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState } from "react";
-import { ArrowLeft, CheckCircle2, Loader2 } from "lucide-react";
+import { FormEvent, useEffect, useState } from "react";
+import { ArrowLeft, CheckCircle2, Clock3, Loader2 } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
+
+type RecentBenchmark = {
+  name: string;
+  slug: string;
+  category: string;
+  createdAt: string;
+  status: string;
+  score: number | null;
+};
+
+function prettyCategory(value: string) {
+  return value
+    .replace(/-/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
 
 export default function BenchmarkPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState<{ name: string; slug: string } | null>(null);
+  const [recent, setRecent] = useState<RecentBenchmark[]>([]);
+
+  async function loadRecent() {
+    try {
+      const response = await fetch("/api/agents", { cache: "no-store" });
+      if (!response.ok) return;
+      const data = await response.json();
+      setRecent(data.recent ?? []);
+    } catch {
+      // Keep the benchmark form usable even if recent history fails to load.
+    }
+  }
+
+  useEffect(() => {
+    loadRecent();
+    const timer = window.setInterval(loadRecent, 5000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -40,6 +73,7 @@ export default function BenchmarkPage() {
 
       setSuccess({ name: data.agent.name, slug: data.agent.slug });
       formElement.reset();
+      await loadRecent();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
@@ -119,7 +153,7 @@ export default function BenchmarkPage() {
               <CheckCircle2 className="mt-0.5 shrink-0" size={18} />
               <div>
                 <p className="font-bold">{success.name} was saved and queued.</p>
-                <p className="mt-1 text-emerald-100/70">BENCHRX has started the benchmark automatically. Free workers can take a little longer to wake up.</p>
+                <p className="mt-1 text-emerald-100/70">BENCHRX has started the benchmark automatically. You can open the scorecard and leave it there while it runs.</p>
                 <Link
                   href={`/agents/${success.slug}`}
                   className="mt-3 inline-flex rounded-full border border-emerald-300/20 px-4 py-2 font-bold text-emerald-50 transition hover:border-emerald-200/50"
@@ -143,6 +177,50 @@ export default function BenchmarkPage() {
             Saving queues the benchmark and triggers the hosted BENCHRX worker automatically.
           </p>
         </form>
+
+        <div className="mt-12">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--accent)]">History</p>
+              <h2 className="mt-2 text-2xl font-black">Recent benchmarks</h2>
+            </div>
+            <p className="text-xs text-[var(--muted)]">Updates automatically</p>
+          </div>
+
+          <div className="mt-5 overflow-hidden rounded-3xl border border-white/8 bg-[var(--surface)]">
+            {recent.length === 0 ? (
+              <p className="p-6 text-sm text-[var(--muted)]">No recent benchmarks yet.</p>
+            ) : (
+              recent.map((item, index) => (
+                <Link
+                  key={item.slug}
+                  href={`/agents/${item.slug}`}
+                  className={`flex items-center justify-between gap-4 p-5 transition hover:bg-white/[0.03] ${
+                    index !== recent.length - 1 ? "border-b border-white/8" : ""
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-black text-white">{item.name}</p>
+                    <p className="mt-1 text-xs text-[var(--muted)]">{prettyCategory(item.category)}</p>
+                  </div>
+
+                  <div className="flex shrink-0 items-center gap-3">
+                    {item.status === "completed" ? (
+                      <>
+                        <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-200">Ready</span>
+                        <span className="min-w-9 text-right text-lg font-black tabular-nums text-white">{Number(item.score ?? 0).toFixed(0)}</span>
+                      </>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-bold text-[var(--muted)]">
+                        <Clock3 size={13} /> {item.status === "running" ? "Running" : "Queued"}
+                      </span>
+                    )}
+                  </div>
+                </Link>
+              ))
+            )}
+          </div>
+        </div>
       </section>
     </main>
   );
