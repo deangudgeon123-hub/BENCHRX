@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 function makeSlug(name: string) {
@@ -11,6 +11,38 @@ function makeSlug(name: string) {
 
   const suffix = Math.random().toString(36).slice(2, 7);
   return `${base || "agent"}-${suffix}`;
+}
+
+async function triggerBenchmarkWorker() {
+  const workerBaseUrl = (
+    process.env.BENCHMARK_API_URL || "https://benchrx-worker.onrender.com"
+  ).replace(/\/$/, "");
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  if (process.env.BENCHMARK_API_SECRET) {
+    headers.Authorization = `Bearer ${process.env.BENCHMARK_API_SECRET}`;
+  }
+
+  try {
+    const response = await fetch(`${workerBaseUrl}/run-next`, {
+      method: "POST",
+      headers,
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      console.error(
+        "BENCHRX worker trigger failed",
+        response.status,
+        await response.text()
+      );
+    }
+  } catch (error) {
+    console.error("BENCHRX worker trigger failed", error);
+  }
 }
 
 export async function POST(request: Request) {
@@ -90,10 +122,13 @@ export async function POST(request: Request) {
       );
     }
 
+    after(triggerBenchmarkWorker);
+
     return NextResponse.json(
       {
         agent,
         benchmarkRun,
+        benchmarkTriggered: true,
       },
       { status: 201 }
     );
