@@ -2,7 +2,15 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
-import { ArrowLeft, CheckCircle2, Clock3, Loader2 } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  Clock3,
+  Loader2,
+  Play,
+  ShieldCheck,
+} from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
 
 type RecentBenchmark = {
@@ -33,7 +41,7 @@ export default function BenchmarkPage() {
       const data = await response.json();
       setRecent(data.recent ?? []);
     } catch {
-      // Keep the benchmark form usable even if recent history fails to load.
+      // The submission flow should stay usable even if history is unavailable.
     }
   }
 
@@ -68,7 +76,7 @@ export default function BenchmarkPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || "Could not save this agent.");
+        throw new Error(data.error || "Could not start this benchmark.");
       }
 
       setSuccess({ name: data.agent.name, slug: data.agent.slug });
@@ -84,112 +92,167 @@ export default function BenchmarkPage() {
   return (
     <main className="min-h-screen">
       <SiteHeader />
-      <section className="mx-auto max-w-3xl px-6 py-20">
-        <Link href="/" className="inline-flex items-center gap-2 text-sm text-[var(--muted)] transition hover:text-white">
-          <ArrowLeft size={16} /> Back
+
+      <section className="mx-auto max-w-4xl px-6 py-14 sm:py-20">
+        <Link
+          href="/"
+          className="inline-flex items-center gap-2 text-sm text-[var(--muted)] transition hover:text-white"
+        >
+          <ArrowLeft size={16} /> Back to BENCHRX
         </Link>
 
-        <div className="mt-10">
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--accent)]">New benchmark</p>
-          <h1 className="mt-4 text-4xl font-black tracking-[-0.045em] sm:text-5xl">Connect an agent.</h1>
-          <p className="mt-4 max-w-2xl text-lg leading-8 text-[var(--muted)]">
-            Add the agent you want BENCHRX to evaluate. For V1, the agent needs a reachable HTTP API endpoint.
+        <div className="mt-10 max-w-3xl">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="rounded-full border border-[var(--accent)]/20 bg-[var(--accent)]/10 px-3 py-1 text-xs font-black uppercase tracking-[0.16em] text-[var(--accent)]">
+              New benchmark
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[var(--muted)]">
+              <ShieldCheck size={14} /> Independent production-readiness test
+            </span>
+          </div>
+
+          <h1 className="mt-5 text-4xl font-black tracking-[-0.05em] sm:text-6xl">
+            Test a real AI agent.
+          </h1>
+          <p className="mt-5 max-w-2xl text-lg leading-8 text-[var(--muted)]">
+            Give BENCHRX a public agent endpoint and a short description of its job. We&apos;ll run the benchmark automatically and produce a shareable scorecard.
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="mt-10 space-y-5 rounded-3xl border border-white/8 bg-[var(--surface)] p-6 sm:p-8">
-          <label className="block">
-            <span className="mb-2 block text-sm font-bold">Agent name</span>
-            <input
-              name="name"
-              type="text"
-              required
-              placeholder="Invoice Chaser"
-              className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3.5 text-white outline-none transition placeholder:text-white/25 focus:border-[var(--accent)]/50"
-            />
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-sm font-bold">Category</span>
-            <select name="category" defaultValue="general" className="w-full rounded-2xl border border-white/10 bg-[#0b0e12] px-4 py-3.5 text-white outline-none transition focus:border-[var(--accent)]/50">
-              <option value="customer-support">Customer support</option>
-              <option value="sales">Sales</option>
-              <option value="finance">Finance</option>
-              <option value="research">Research</option>
-              <option value="coding">Coding</option>
-              <option value="general">General</option>
-            </select>
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-sm font-bold">Agent API endpoint</span>
-            <input
-              name="endpointUrl"
-              type="url"
-              required
-              placeholder="https://your-agent.com/api/message"
-              className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3.5 text-white outline-none transition placeholder:text-white/25 focus:border-[var(--accent)]/50"
-            />
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-sm font-bold">What should this agent do?</span>
-            <textarea
-              name="description"
-              rows={5}
-              placeholder="Describe the agent's intended job, limits and expected behaviour."
-              className="w-full resize-none rounded-2xl border border-white/10 bg-black/20 px-4 py-3.5 text-white outline-none transition placeholder:text-white/25 focus:border-[var(--accent)]/50"
-            />
-          </label>
-
-          {error ? (
-            <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-              {error}
-            </div>
-          ) : null}
-
-          {success ? (
-            <div className="flex items-start gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-              <CheckCircle2 className="mt-0.5 shrink-0" size={18} />
-              <div>
-                <p className="font-bold">{success.name} was saved and queued.</p>
-                <p className="mt-1 text-emerald-100/70">BENCHRX has started the benchmark automatically. You can open the scorecard and leave it there while it runs.</p>
-                <Link
-                  href={`/agents/${success.slug}`}
-                  className="mt-3 inline-flex rounded-full border border-emerald-300/20 px-4 py-2 font-bold text-emerald-50 transition hover:border-emerald-200/50"
-                >
-                  Open scorecard
-                </Link>
+        <div className="mt-8 grid gap-3 sm:grid-cols-3">
+          {[
+            ["1", "Connect", "Add the agent endpoint"],
+            ["2", "Benchmark", "BENCHRX runs the suite"],
+            ["3", "Scorecard", "Review the evidence"],
+          ].map(([number, title, description]) => (
+            <div key={number} className="rounded-2xl border border-white/8 bg-white/[0.025] p-4">
+              <div className="flex items-center gap-3">
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/8 text-xs font-black text-white">
+                  {number}
+                </span>
+                <p className="font-black text-white">{title}</p>
               </div>
+              <p className="mt-2 pl-10 text-xs leading-5 text-[var(--muted)]">{description}</p>
             </div>
-          ) : null}
+          ))}
+        </div>
 
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-6 py-3.5 text-sm font-black text-black transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isSubmitting ? <Loader2 size={17} className="animate-spin" /> : null}
-            {isSubmitting ? "Saving agent..." : "Save agent"}
-          </button>
+        <form
+          onSubmit={handleSubmit}
+          className="mt-8 overflow-hidden rounded-3xl border border-white/8 bg-[var(--surface)]"
+        >
+          <div className="border-b border-white/8 p-6 sm:p-8">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--accent)]">Agent profile</p>
+            <div className="mt-5 grid gap-5 sm:grid-cols-2">
+              <label className="block">
+                <span className="mb-2 block text-sm font-bold">Agent name</span>
+                <input
+                  name="name"
+                  type="text"
+                  required
+                  placeholder="Invoice Chaser"
+                  className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3.5 text-white outline-none transition placeholder:text-white/25 focus:border-[var(--accent)]/50"
+                />
+              </label>
 
-          <p className="text-center text-xs leading-5 text-[var(--muted)]">
-            Saving queues the benchmark and triggers the hosted BENCHRX worker automatically.
-          </p>
+              <label className="block">
+                <span className="mb-2 block text-sm font-bold">Category</span>
+                <select
+                  name="category"
+                  defaultValue="general"
+                  className="w-full rounded-2xl border border-white/10 bg-[#0b0e12] px-4 py-3.5 text-white outline-none transition focus:border-[var(--accent)]/50"
+                >
+                  <option value="customer-support">Customer support</option>
+                  <option value="sales">Sales</option>
+                  <option value="finance">Finance</option>
+                  <option value="research">Research</option>
+                  <option value="coding">Coding</option>
+                  <option value="general">General</option>
+                </select>
+              </label>
+            </div>
+
+            <label className="mt-5 block">
+              <span className="mb-2 block text-sm font-bold">What is this agent supposed to do?</span>
+              <textarea
+                name="description"
+                rows={4}
+                placeholder="Describe its intended job, important limits and expected behaviour."
+                className="w-full resize-none rounded-2xl border border-white/10 bg-black/20 px-4 py-3.5 text-white outline-none transition placeholder:text-white/25 focus:border-[var(--accent)]/50"
+              />
+              <span className="mt-2 block text-xs leading-5 text-[var(--muted)]">
+                This will later help BENCHRX generate purpose-specific tests. Universal blind resilience checks are evaluated separately.
+              </span>
+            </label>
+          </div>
+
+          <div className="p-6 sm:p-8">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--accent)]">Connection</p>
+            <label className="mt-5 block">
+              <span className="mb-2 block text-sm font-bold">Agent API endpoint</span>
+              <input
+                name="endpointUrl"
+                type="url"
+                required
+                placeholder="https://your-agent.com/api/message"
+                className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3.5 text-white outline-none transition placeholder:text-white/25 focus:border-[var(--accent)]/50"
+              />
+              <span className="mt-2 block text-xs leading-5 text-[var(--muted)]">
+                The endpoint must be publicly reachable. BENCHRX V1 sends <span className="font-mono text-white/70">{"{ message: \"...\" }"}</span> and expects a <span className="font-mono text-white/70">response</span> field back.
+              </span>
+            </label>
+
+            {error ? (
+              <div className="mt-5 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                {error}
+              </div>
+            ) : null}
+
+            {success ? (
+              <div className="mt-5 flex items-start gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-4 text-sm text-emerald-100">
+                <CheckCircle2 className="mt-0.5 shrink-0" size={19} />
+                <div className="min-w-0">
+                  <p className="font-black">Benchmark started for {success.name}.</p>
+                  <p className="mt-1 leading-6 text-emerald-100/70">
+                    BENCHRX is running the production-readiness suite now. The scorecard updates automatically when the run is ready.
+                  </p>
+                  <Link
+                    href={`/agents/${success.slug}`}
+                    className="mt-3 inline-flex items-center gap-2 rounded-full border border-emerald-300/20 px-4 py-2 font-black text-emerald-50 transition hover:border-emerald-200/50"
+                  >
+                    Watch benchmark <ArrowRight size={15} />
+                  </Link>
+                </div>
+              </div>
+            ) : null}
+
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="mt-6 flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-6 py-4 text-sm font-black text-black transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSubmitting ? <Loader2 size={18} className="animate-spin" /> : <Play size={17} />}
+              {isSubmitting ? "Starting benchmark..." : "Run BENCHRX benchmark"}
+            </button>
+
+            <p className="mt-3 text-center text-xs leading-5 text-[var(--muted)]">
+              The hosted worker starts automatically. No local backend is required.
+            </p>
+          </div>
         </form>
 
-        <div className="mt-12">
+        <div className="mt-14">
           <div className="flex items-end justify-between gap-4">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--accent)]">History</p>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--accent)]">History</p>
               <h2 className="mt-2 text-2xl font-black">Recent benchmarks</h2>
             </div>
-            <p className="text-xs text-[var(--muted)]">Updates automatically</p>
+            <p className="text-xs text-[var(--muted)]">Live status</p>
           </div>
 
           <div className="mt-5 overflow-hidden rounded-3xl border border-white/8 bg-[var(--surface)]">
             {recent.length === 0 ? (
-              <p className="p-6 text-sm text-[var(--muted)]">No recent benchmarks yet.</p>
+              <p className="p-6 text-sm text-[var(--muted)]">Your latest benchmarks will appear here.</p>
             ) : (
               recent.map((item, index) => (
                 <Link
@@ -207,14 +270,19 @@ export default function BenchmarkPage() {
                   <div className="flex shrink-0 items-center gap-3">
                     {item.status === "completed" ? (
                       <>
-                        <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-200">Ready</span>
-                        <span className="min-w-9 text-right text-lg font-black tabular-nums text-white">{Number(item.score ?? 0).toFixed(0)}</span>
+                        <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-black text-emerald-200">
+                          Ready
+                        </span>
+                        <span className="min-w-9 text-right text-lg font-black tabular-nums text-white">
+                          {Number(item.score ?? 0).toFixed(0)}
+                        </span>
                       </>
                     ) : (
                       <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-bold text-[var(--muted)]">
                         <Clock3 size={13} /> {item.status === "running" ? "Running" : "Queued"}
                       </span>
                     )}
+                    <ArrowRight size={15} className="text-white/30" />
                   </div>
                 </Link>
               ))
