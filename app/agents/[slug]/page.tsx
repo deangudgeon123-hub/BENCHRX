@@ -32,12 +32,24 @@ type TestCase = {
   description: string | null;
 };
 
+type AIJudge = {
+  status?: string;
+  model?: string;
+  dimension?: string;
+  score?: number;
+  passed?: boolean;
+  confidence?: number;
+  reason?: string;
+  error?: string;
+};
+
 type ResultRow = {
   id: string;
   passed: boolean | null;
   score: number | null;
   latency_ms: number | null;
   judge_reason: string | null;
+  raw_response: { ai_judge?: AIJudge; [key: string]: unknown } | null;
   test_cases: TestCase | TestCase[] | null;
 };
 
@@ -136,7 +148,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
   if (run) {
     const { data } = await supabase
       .from("benchmark_results")
-      .select("id,passed,score,latency_ms,judge_reason,test_cases(key,title,category,description)")
+      .select("id,passed,score,latency_ms,judge_reason,raw_response,test_cases(key,title,category,description)")
       .eq("benchmark_run_id", run.id)
       .order("created_at", { ascending: true });
 
@@ -148,6 +160,14 @@ export default async function AgentScorecardPage({ params }: PageProps) {
   const scoreDelta = previousScore === null ? null : productionScore - previousScore;
   const passedCount = results.filter((result) => result.passed).length;
   const failedCount = results.length - passedCount;
+  const aiResults = results
+    .map((result) => ({
+      result,
+      testCase: Array.isArray(result.test_cases) ? result.test_cases[0] : result.test_cases,
+      judge: result.raw_response?.ai_judge,
+    }))
+    .filter((item) => item.judge);
+  const completedAIResults = aiResults.filter((item) => item.judge?.status === "completed");
 
   return (
     <main className="min-h-screen">
@@ -244,11 +264,55 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                 <div className="flex items-center justify-between gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/5 text-white"><Target size={19} /></div><span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-[var(--muted)]">Planned</span></div>
                 <h3 className="mt-5 text-lg font-black">Declared purpose</h3><p className="mt-2 text-sm leading-6 text-[var(--muted)]">Tests whether the agent actually performs the job and limits its developer declares.</p>
               </div>
-              <div className="rounded-3xl border border-white/8 bg-[var(--surface)] p-6">
-                <div className="flex items-center justify-between gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/5 text-white"><Sparkles size={19} /></div><span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-[var(--muted)]">Planned</span></div>
-                <h3 className="mt-5 text-lg font-black">AI evaluation</h3><p className="mt-2 text-sm leading-6 text-[var(--muted)]">Rubric-based judging for quality, hallucination, intent understanding and refusal quality.</p>
+              <div className="rounded-3xl border border-[var(--accent)]/20 bg-[var(--surface)] p-6">
+                <div className="flex items-center justify-between gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--accent)]/10 text-[var(--accent)]"><Sparkles size={19} /></div><span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-amber-200">Shadow</span></div>
+                <h3 className="mt-5 text-lg font-black">AI evaluation</h3><p className="mt-2 text-sm leading-6 text-[var(--muted)]">GPT judge is now running on selected tests. Its result is visible below but does not affect the production score yet.</p>
               </div>
             </div>
+
+            {aiResults.length > 0 ? (
+              <div className="mt-10">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--accent)]">AI evaluation</p>
+                    <h2 className="mt-3 flex items-center gap-2 text-3xl font-black tracking-[-0.035em]"><Sparkles size={24} /> Shadow judge results</h2>
+                    <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--muted)]">These AI judgments are being calibrated and do not affect the BENCHRX production score yet.</p>
+                  </div>
+                  <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-xs font-black text-amber-200">{completedAIResults.length}/{aiResults.length} completed</span>
+                </div>
+
+                <div className="mt-6 grid gap-4 md:grid-cols-2">
+                  {aiResults.map(({ result, testCase, judge }) => (
+                    <div key={`ai-${result.id}`} className="rounded-3xl border border-white/8 bg-[var(--surface)] p-6">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--muted)]">{judge?.dimension ? prettyCategory(judge.dimension) : testCase?.title ?? "AI judge"}</p>
+                          <h3 className="mt-2 text-lg font-black text-white">{testCase?.title ?? "AI evaluation"}</h3>
+                        </div>
+                        {judge?.status === "completed" ? (
+                          <div className="text-right"><p className="text-xs text-[var(--muted)]">AI score</p><p className="text-3xl font-black tabular-nums text-white">{Number(judge.score ?? 0).toFixed(0)}</p></div>
+                        ) : (
+                          <span className="rounded-full border border-red-500/20 bg-red-500/10 px-3 py-1 text-xs font-bold text-red-200">{prettyCategory(judge?.status ?? "error")}</span>
+                        )}
+                      </div>
+
+                      {judge?.status === "completed" ? (
+                        <>
+                          <p className="mt-5 text-sm leading-6 text-[var(--muted)]">{judge.reason}</p>
+                          <div className="mt-5 flex flex-wrap gap-2 border-t border-white/8 pt-4 text-xs text-[var(--muted)]">
+                            <span className="rounded-full bg-white/5 px-3 py-1.5">Model: <span className="font-bold text-white">{judge.model ?? "OpenAI judge"}</span></span>
+                            <span className="rounded-full bg-white/5 px-3 py-1.5">Confidence: <span className="font-bold text-white">{Math.round(Number(judge.confidence ?? 0) * 100)}%</span></span>
+                            <span className={`rounded-full px-3 py-1.5 font-bold ${judge.passed ? "bg-emerald-500/10 text-emerald-200" : "bg-red-500/10 text-red-200"}`}>{judge.passed ? "AI pass" : "AI fail"}</span>
+                          </div>
+                        </>
+                      ) : (
+                        <p className="mt-5 text-sm leading-6 text-red-200/80">{judge?.error ?? "The AI judge did not return a completed result."}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             <div className="mt-10">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -267,6 +331,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                             <p className="font-black text-white">{testCase?.title ?? "BENCHRX test"}</p>
                             <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${result.passed ? "bg-emerald-500/10 text-emerald-200" : "bg-red-500/10 text-red-200"}`}>{result.passed ? "Passed" : "Failed"}</span>
                             <span className="rounded-full border border-[var(--accent)]/15 bg-[var(--accent)]/8 px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-[var(--accent)]">Blind</span>
+                            {result.raw_response?.ai_judge ? <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-amber-200">AI judged</span> : null}
                             {testCase?.category ? <span className="rounded-full bg-white/5 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">{prettyCategory(testCase.category)}</span> : null}
                           </div>
                           <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{result.judge_reason ?? testCase?.description ?? "Benchmark check completed."}</p>
@@ -310,7 +375,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
             </div>
 
             <div className="mt-8 flex flex-col gap-4 rounded-3xl border border-white/8 bg-white/[0.025] p-6 text-sm leading-6 text-[var(--muted)] sm:flex-row sm:items-center sm:justify-between">
-              <p className="max-w-3xl">This score currently reflects BENCHRX blind resilience checks only. Declared-purpose and AI-evaluated evidence are not yet included.</p>
+              <p className="max-w-3xl">This score currently reflects BENCHRX blind resilience checks only. AI shadow judgments are displayed for calibration but are not yet included in the production score.</p>
               <Link href="/benchmark" className="shrink-0 rounded-full border border-white/12 px-5 py-2.5 font-bold text-white transition hover:border-[var(--accent)]/60">Benchmark another agent</Link>
             </div>
           </>
