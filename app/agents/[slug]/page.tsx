@@ -6,8 +6,10 @@ import {
   CheckCircle2,
   CircleGauge,
   Clock3,
+  Eye,
   ShieldCheck,
   Sparkles,
+  Target,
   XCircle,
 } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
@@ -43,10 +45,10 @@ function scoreLabel(score: number) {
 }
 
 function scoreSummary(score: number) {
-  if (score >= 90) return "Strong performance across the current BENCHRX core checks.";
-  if (score >= 75) return "Good overall performance, with some areas worth reviewing before wider deployment.";
-  if (score >= 60) return "Several checks need attention before this agent should be treated as production ready.";
-  return "Material weaknesses were found in the current BENCHRX core checks.";
+  if (score >= 90) return "Strong performance across the current BENCHRX blind resilience checks.";
+  if (score >= 75) return "Good overall performance, with some resilience areas worth reviewing before wider deployment.";
+  if (score >= 60) return "Several resilience checks need attention before this agent should be treated as production ready.";
+  return "Material weaknesses were found in the current BENCHRX blind resilience checks.";
 }
 
 function prettyCategory(value: string) {
@@ -186,7 +188,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                 <div>
                   <p className="font-black text-emerald-50">Benchmark ready</p>
                   <p className="mt-1 text-sm leading-6 text-emerald-100/70">
-                    BENCHRX completed the current core production-readiness checks for this agent.
+                    BENCHRX completed the current blind resilience suite for this agent.
                   </p>
                 </div>
               </div>
@@ -244,12 +246,15 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                     <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--muted)]">
                       Score breakdown
                     </p>
-                    <h2 className="mt-2 text-2xl font-black">Core checks</h2>
+                    <h2 className="mt-2 text-2xl font-black">Blind resilience</h2>
                   </div>
-                  <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-bold text-[var(--muted)]">
-                    Current V1 suite
+                  <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-200">
+                    Active
                   </span>
                 </div>
+                <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
+                  Universal checks BENCHRX runs independently of what the developer says the agent can do.
+                </p>
 
                 <div className="mt-7 space-y-6">
                   <ScoreBar label="Task success" value={run.task_success_score} />
@@ -258,13 +263,55 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                   <ScoreBar label="Error handling" value={run.error_handling_score} />
                   <ScoreBar label="Efficiency" value={run.efficiency_score} />
                 </div>
+              </div>
+            </div>
 
-                <div className="mt-8 rounded-2xl border border-white/8 bg-white/[0.025] p-4">
-                  <div className="flex items-center gap-2 text-sm font-black text-white">
-                    <Sparkles size={16} className="text-[var(--accent)]" /> AI evaluation layer
+            <div className="mt-8">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--accent)]">Benchmark layers</p>
+                  <h2 className="mt-2 text-2xl font-black">How BENCHRX evaluates an agent</h2>
+                </div>
+                <p className="text-xs text-[var(--muted)]">Only active layers affect today&apos;s score</p>
+              </div>
+
+              <div className="mt-5 grid gap-4 md:grid-cols-3">
+                <div className="rounded-3xl border border-[var(--accent)]/20 bg-[var(--surface)] p-6">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--accent)]/10 text-[var(--accent)]">
+                      <Eye size={19} />
+                    </div>
+                    <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-200">Active</span>
                   </div>
+                  <h3 className="mt-5 text-lg font-black">Blind resilience</h3>
                   <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-                    Purpose-specific quality, hallucination and deeper behavioural judging will appear here once the AI evaluation layer is enabled.
+                    Surprise universal checks for reliability, safety, ambiguity, malformed input and repeatability.
+                  </p>
+                </div>
+
+                <div className="rounded-3xl border border-white/8 bg-[var(--surface)] p-6">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/5 text-white">
+                      <Target size={19} />
+                    </div>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-[var(--muted)]">Planned</span>
+                  </div>
+                  <h3 className="mt-5 text-lg font-black">Declared purpose</h3>
+                  <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+                    Tests whether the agent actually performs the job, limits and behaviour its developer declares.
+                  </p>
+                </div>
+
+                <div className="rounded-3xl border border-white/8 bg-[var(--surface)] p-6">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/5 text-white">
+                      <Sparkles size={19} />
+                    </div>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-[var(--muted)]">Planned</span>
+                  </div>
+                  <h3 className="mt-5 text-lg font-black">AI evaluation</h3>
+                  <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+                    Rubric-based judging for task quality, hallucination, intent understanding and refusal quality.
                   </p>
                 </div>
               </div>
@@ -276,9 +323,9 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                   <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--accent)]">
                     Evidence
                   </p>
-                  <h2 className="mt-3 text-3xl font-black tracking-[-0.035em]">Core test evidence</h2>
+                  <h2 className="mt-3 text-3xl font-black tracking-[-0.035em]">Blind resilience evidence</h2>
                   <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--muted)]">
-                    Each result below shows the observed behaviour used in this production-readiness score.
+                    These checks are intentionally universal. They do not depend on the developer&apos;s declared description of the agent.
                   </p>
                 </div>
                 <p className="text-sm text-[var(--muted)]">Run {run.id.slice(0, 8)}</p>
@@ -321,6 +368,9 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                             >
                               {result.passed ? "Passed" : "Failed"}
                             </span>
+                            <span className="rounded-full border border-[var(--accent)]/15 bg-[var(--accent)]/8 px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-[var(--accent)]">
+                              Blind
+                            </span>
                             {testCase?.category ? (
                               <span className="rounded-full bg-white/5 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">
                                 {prettyCategory(testCase.category)}
@@ -355,7 +405,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
 
             <div className="mt-8 flex flex-col gap-4 rounded-3xl border border-white/8 bg-white/[0.025] p-6 text-sm leading-6 text-[var(--muted)] sm:flex-row sm:items-center sm:justify-between">
               <p className="max-w-3xl">
-                This score reflects the current BENCHRX V1 core suite for this specific run. It is evidence of observed behaviour, not a guarantee of safety or suitability for every deployment.
+                This score currently reflects BENCHRX blind resilience checks only. Declared-purpose and AI-evaluated evidence are not yet included, so the result should not be treated as a complete certification of the agent.
               </p>
               <Link
                 href="/benchmark"
