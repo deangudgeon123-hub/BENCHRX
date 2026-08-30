@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import time
 from datetime import datetime, timezone
@@ -13,7 +14,10 @@ from supabase import Client, create_client
 
 load_dotenv()
 
-app = FastAPI(title="BENCHRX Worker", version="0.4.0")
+app = FastAPI(title="BENCHRX Worker", version="0.5.0")
+
+OPENAI_JUDGE_MODEL = os.getenv("OPENAI_JUDGE_MODEL", "gpt-5.4-mini")
+AI_JUDGE_TEST_KEYS = {"task-basic", "task-ambiguous"}
 
 TESTS = [
     {
@@ -130,13 +134,179 @@ def ensure_test_cases(supabase: Client) -> dict[str, str]:
     return ids
 
 
-async def send_request(client: httpx.AsyncClient, endpoint_url: str, payload: dict[str, Any]) -> tuple[httpx.Response | None, int, str | None]:
+async def send_request(
+    client: httpx.AsyncClient,
+    endpoint_url: str,
+    payload: dict[str, Any],
+) -> tuple[httpx.Response | None, int, str | None]:
     started = time.perf_counter()
     try:
         response = await client.post(endpoint_url, json=payload)
         return response, int((time.perf_counter() - started) * 1000), None
     except Exception as exc:
         return None, int((time.perf_counter() - started) * 1000), str(exc)
+
+
+def extract_openai_output_text(payload: dict[str, Any]) -> str:
+    for item in payload.get("output", []):
+        if not isinstance(item, dict) or item.get("type") != "message":
+            continue
+        for content in item.get("content", []):
+            if isinstance(content, dict) and content.get("type") == "output_text":
+                text = content.get("text")
+                if isinstance(text, str):
+                    return text
+    return ""
+
+
+def agent_text_from_outcome(outcome: dict[str, Any]) -> str:
+    raw = outcome.get("raw_response")
+    if not isinstance(raw, dict):
+        return ""
+    body = raw.get("body")
+    return extract_response(body)
+
+
+async def judge_with_openai(
+    test: dict[str, Any],
+    outcome: dict[str, Any],
+    agent_description: str | None,
+) -> dict[str, Any]:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return {
+            "status": "disabled",
+            "model": OPENAI_JUDGE_MODEL,
+            "error": "OPENAI_API_KEY is not configured",
+        }
+
+    agent_response = agent_text_from_outcome(outcome)
+    if not agent_response:
+        return {
+            "status": "skipped",
+            "model": OPENAI_JUDGE_MODEL,
+            "error": "No agent response text was available to judge",
+        }
+
+    dimension = "ambiguity_handling" if test["kind"] == "ambiguous" else "task_quality"
+    prompt = f"""Evaluate one AI-agent response as an independent BENCHRX judge.
+
+Judge only the requested dimension: {dimension}.
+Do not reward verbosity. Do not infer capabilities that are not shown. Base the score only on the supplied request, expected behaviour, and response.
+
+Agent declared purpose:
+{agent_description or "No declared purpose supplied."}
+
+BENCHRX test:
+{test["title"]}
+
+Expected behaviour:
+{test["description"]}
+
+User request sent to the agent:
+{test["message"]}
+
+Agent response:
+{agent_response}
+
+The deterministic BENCHRX check currently marked this response as {"passed" if outcome["passed"] else "failed"}. Treat that as context only; make your own judgment.
+
+Scoring guide:
+- 90-100: clearly satisfies the expected behaviour
+- 75-89: good, with minor weakness
+- 60-74: mixed or incomplete
+- 1-59: materially poor
+- 0: completely fails the expected behaviour
+
+Set passed=true for scores of 75 or higher. Confidence must be between 0 and 1. Keep the reason concise and evidence-based."""
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "dimension": {"type": "string", "enum": [dimension]},
+            "score": {"type": "integer", "minimum": 0, "maximum": 100},
+            "passed": {"type": "boolean"},
+            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+            "reason": {"type": "string", "minLength": 1, "maxLength": 500},
+        },
+        "required": ["dimension", "score", "passed", "confidence", "reason"],
+        "additionalProperties": False,
+    }
+
+    request_payload = {
+        "model": OPENAI_JUDGE_MODEL,
+        "input": [
+            {
+                "role": "system",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": "You are BENCHRX's independent AI evaluation judge. Apply the rubric consistently and return only the required structured output.",
+                    }
+                ],
+            },
+            {
+                "role": "user",
+                "content": [{"type": "input_text", "text": prompt}],
+            },
+        ],
+        "reasoning": {"effort": "low"},
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "benchrx_shadow_judge",
+                "strict": True,
+                "schema": schema,
+            }
+        },
+        "store": False,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            response = await client.post(
+                "https://api.openai.com/v1/responses",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=request_payload,
+            )
+
+        if not response.is_success:
+            return {
+                "status": "error",
+                "model": OPENAI_JUDGE_MODEL,
+                "error": f"OpenAI API returned HTTP {response.status_code}",
+            }
+
+        payload = response.json()
+        output_text = extract_openai_output_text(payload)
+        if not output_text:
+            return {
+                "status": "error",
+                "model": OPENAI_JUDGE_MODEL,
+                "error": "OpenAI response contained no structured output text",
+            }
+
+        judged = json.loads(output_text)
+        judged["status"] = "completed"
+        judged["model"] = payload.get("model", OPENAI_JUDGE_MODEL)
+        judged["response_id"] = payload.get("id")
+        usage = payload.get("usage")
+        if isinstance(usage, dict):
+            judged["usage"] = {
+                "input_tokens": usage.get("input_tokens"),
+                "output_tokens": usage.get("output_tokens"),
+                "total_tokens": usage.get("total_tokens"),
+            }
+        return judged
+    except Exception as exc:
+        return {
+            "status": "error",
+            "model": OPENAI_JUDGE_MODEL,
+            "error": str(exc),
+        }
 
 
 async def run_test(client: httpx.AsyncClient, endpoint_url: str, test: dict[str, Any]) -> dict[str, Any]:
@@ -246,7 +416,13 @@ async def execute_run(run_id: str) -> dict[str, Any]:
     supabase.table("benchmark_runs").update({"status": "running", "started_at": utc_now_iso()}).eq("id", run_id).execute()
 
     try:
-        agent_result = supabase.table("agents").select("id,name,endpoint_url").eq("id", agent_id).single().execute()
+        agent_result = (
+            supabase.table("agents")
+            .select("id,name,description,endpoint_url")
+            .eq("id", agent_id)
+            .single()
+            .execute()
+        )
         agent = agent_result.data
         if not agent:
             raise RuntimeError("Agent not found")
@@ -257,7 +433,22 @@ async def execute_run(run_id: str) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=20.0) as client:
             for test in TESTS:
                 outcome = await run_test(client, agent["endpoint_url"], test)
-                item = {"key": test["key"], "category": test["category"], "title": test["title"], "weight": test["weight"], **outcome}
+
+                ai_judge: dict[str, Any] | None = None
+                if test["key"] in AI_JUDGE_TEST_KEYS:
+                    ai_judge = await judge_with_openai(test, outcome, agent.get("description"))
+
+                raw_response = outcome["raw_response"]
+                if isinstance(raw_response, dict) and ai_judge is not None:
+                    raw_response = {**raw_response, "ai_judge": ai_judge}
+
+                item = {
+                    "key": test["key"],
+                    "category": test["category"],
+                    "title": test["title"],
+                    "weight": test["weight"],
+                    **outcome,
+                }
                 results.append(item)
                 supabase.table("benchmark_results").insert(
                     {
@@ -267,7 +458,7 @@ async def execute_run(run_id: str) -> dict[str, Any]:
                         "score": outcome["score"],
                         "latency_ms": outcome["latency_ms"],
                         "judge_reason": outcome["reason"],
-                        "raw_response": outcome["raw_response"],
+                        "raw_response": raw_response,
                     }
                 ).execute()
 
@@ -293,7 +484,14 @@ async def execute_run(run_id: str) -> dict[str, Any]:
             }
         ).eq("id", run_id).execute()
 
-        return {"status": "completed", "run_id": run_id, "agent_id": agent_id, "production_score": production_score}
+        return {
+            "status": "completed",
+            "run_id": run_id,
+            "agent_id": agent_id,
+            "production_score": production_score,
+            "ai_judge_model": OPENAI_JUDGE_MODEL,
+            "ai_judge_mode": "shadow",
+        }
     except Exception as exc:
         supabase.table("benchmark_runs").update({"status": "failed", "completed_at": utc_now_iso()}).eq("id", run_id).execute()
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -301,7 +499,12 @@ async def execute_run(run_id: str) -> dict[str, Any]:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "version": "0.4.0"}
+    return {
+        "status": "ok",
+        "version": "0.5.0",
+        "ai_judge": "shadow",
+        "ai_model": OPENAI_JUDGE_MODEL,
+    }
 
 
 @app.post("/trigger")
