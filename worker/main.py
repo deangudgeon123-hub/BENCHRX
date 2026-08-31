@@ -2,22 +2,22 @@ from __future__ import annotations
 
 import json
 import os
-import time
 from datetime import datetime, timezone
 from typing import Any
 
 import httpx
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI, HTTPException
-from pydantic import BaseModel
-from supabase import Client, create_client
+from supabase import Client
+
+from config import AI_JUDGE_TEST_KEYS, OPENAI_JUDGE_MODEL
+from models.payloads import TriggerPayload
+from services.agent_client import extract_response, response_payload, send_request
+from services.supabase import get_supabase
 
 load_dotenv()
 
 app = FastAPI(title="BENCHRX Worker", version="0.5.0")
-
-OPENAI_JUDGE_MODEL = os.getenv("OPENAI_JUDGE_MODEL", "gpt-5.4-mini")
-AI_JUDGE_TEST_KEYS = {"task-basic", "task-ambiguous"}
 
 TESTS = [
     {
@@ -68,38 +68,8 @@ TESTS = [
 ]
 
 
-class TriggerPayload(BaseModel):
-    run_id: str
-
-
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def get_supabase() -> Client:
-    url = os.getenv("SUPABASE_URL")
-    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-
-    if not url or not key:
-        raise RuntimeError("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY")
-
-    return create_client(url, key)
-
-
-def extract_response(payload: Any) -> str:
-    if isinstance(payload, dict):
-        value = payload.get("response")
-        return value.strip() if isinstance(value, str) else ""
-    return ""
-
-
-def response_payload(response: httpx.Response) -> dict[str, Any]:
-    try:
-        body: Any = response.json()
-    except ValueError:
-        body = {"text": response.text}
-
-    return {"http_status": response.status_code, "body": body}
 
 
 def ensure_test_cases(supabase: Client) -> dict[str, str]:
@@ -132,19 +102,6 @@ def ensure_test_cases(supabase: Client) -> dict[str, str]:
         )
         ids[test["key"]] = created.data[0]["id"]
     return ids
-
-
-async def send_request(
-    client: httpx.AsyncClient,
-    endpoint_url: str,
-    payload: dict[str, Any],
-) -> tuple[httpx.Response | None, int, str | None]:
-    started = time.perf_counter()
-    try:
-        response = await client.post(endpoint_url, json=payload)
-        return response, int((time.perf_counter() - started) * 1000), None
-    except Exception as exc:
-        return None, int((time.perf_counter() - started) * 1000), str(exc)
 
 
 def extract_openai_output_text(payload: dict[str, Any]) -> str:
