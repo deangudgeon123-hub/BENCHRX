@@ -124,6 +124,15 @@ function parseInputTemplate(raw: string) {
   return parsed;
 }
 
+function containsMessagePlaceholder(value: unknown): boolean {
+  if (value === "{{message}}") return true;
+  if (Array.isArray(value)) return value.some(containsMessagePlaceholder);
+  if (value && typeof value === "object") {
+    return Object.values(value as JsonObject).some(containsMessagePlaceholder);
+  }
+  return false;
+}
+
 function replaceMessage(value: unknown, message: unknown): unknown {
   if (value === "{{message}}") return message;
   if (Array.isArray(value)) return value.map((item) => replaceMessage(item, message));
@@ -219,6 +228,10 @@ export async function POST(request: Request) {
     );
     const apiName = normalizeApiName(adapterUrl.searchParams.get("apiName") ?? "chat");
     const inputTemplate = parseInputTemplate(adapterUrl.searchParams.get("inputs") ?? "[]");
+    if (!containsMessagePlaceholder(inputTemplate)) {
+      throw new Error('Gradio input JSON must contain the exact string "{{message}}".');
+    }
+
     const outputIndexRaw = adapterUrl.searchParams.get("outputIndex") ?? "0";
     const outputIndex = Number(outputIndexRaw);
     if (!Number.isInteger(outputIndex) || outputIndex < 0) {
