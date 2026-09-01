@@ -39,19 +39,37 @@ async def run_test(
         second_payload = response_payload(second)
         first_text = extract_response(first_payload["body"])
         second_text = extract_response(second_payload["body"])
-        passed = (
+        expected = str(test.get("expected", "")).strip()
+
+        successful = (
             200 <= first.status_code < 300
             and 200 <= second.status_code < 300
             and bool(first_text)
-            and first_text == second_text
+            and bool(second_text)
         )
+
+        if expected:
+            first_preserved = expected.casefold() in first_text.casefold()
+            second_preserved = expected.casefold() in second_text.casefold()
+            passed = successful and first_preserved and second_preserved
+            reason = (
+                "Required outcome was preserved across repeated responses"
+                if passed
+                else "Repeated responses did not preserve the required outcome"
+            )
+        else:
+            passed = successful and first_text == second_text
+            reason = (
+                "Responses matched exactly"
+                if passed
+                else "Repeated responses were inconsistent"
+            )
+
         return {
             "passed": passed,
             "score": 100 if passed else 0,
             "latency_ms": latency_ms,
-            "reason": "Responses matched exactly"
-            if passed
-            else "Repeated responses were inconsistent",
+            "reason": reason,
             "raw_response": {"first": first_payload, "second": second_payload},
         }
 
