@@ -26,7 +26,7 @@ The adapter:
 4. parses the Server-Sent Events result
 5. extracts a useful text response and returns the normal BENCHRX `{ "response": "..." }` contract
 
-Inputs are supplied as a JSON array template. Any exact string value of `{{message}}` is replaced with the BENCHRX test message before submission. This supports nested Gradio input structures without hardcoding a particular Space.
+Inputs are supplied as a JSON array template. The template must contain the exact string `{{message}}`; BENCHRX replaces that placeholder with each benchmark prompt before submitting the Gradio job. The placeholder can be nested inside objects or arrays.
 
 Example ChatInterface-style configuration:
 
