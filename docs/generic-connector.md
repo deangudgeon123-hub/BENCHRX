@@ -1,26 +1,38 @@
-# BENCHRX Generic Connector v1
+# Generic connectors
 
-The generic connector lets BENCHRX test public synchronous JSON agent APIs without a platform-specific adapter.
+BENCHRX currently supports two adapter styles on the feature branch.
 
-## Supported shape
+## Custom HTTP JSON
 
-- HTTPS only
-- POST requests
-- JSON request bodies
-- Public unauthenticated endpoints
-- Dot-separated request paths such as `message` or `input.message`
-- Dot-separated response paths such as `response` or `result.answer`
+Use this for public synchronous JSON endpoints that accept one POST and return one JSON response.
 
-BENCHRX normalizes the external API to its internal contract:
+The adapter supports:
 
-```json
-{ "message": "..." }
-```
+- HTTPS-only public targets
+- nested request and response paths
+- array indexes such as `messages[0].content`
+- optional fixed request JSON for fields such as `model` and `role`
+- private/local target blocking, redirect blocking, timeout and response-size limits
 
-and expects the configured upstream response path to resolve to a non-empty string.
+## Hugging Face / Gradio queue API
 
-## Safety constraints
+Gradio Spaces generally use a two-step queue protocol rather than a single synchronous response. BENCHRX now has `/api/adapters/gradio` for that shape.
 
-The generic adapter rejects local/private hostnames and private/link-local IP ranges, resolves hostnames before connecting, does not follow redirects, enforces a request timeout, and caps upstream response size.
+The adapter:
 
-This is intentionally a narrow v1. Authenticated endpoints, custom headers, async run/thread APIs, webhooks and tool-session protocols should be added separately rather than putting credentials into URLs or public scorecard data.
+1. POSTs `{"data": [...]}` to `/gradio_api/call/{api_name}`
+2. reads the returned `event_id`
+3. GETs `/gradio_api/call/{api_name}/{event_id}`
+4. parses the Server-Sent Events result
+5. extracts a useful text response and returns the normal BENCHRX `{ "response": "..." }` contract
+
+Inputs are supplied as a JSON array template. Any exact string value of `{{message}}` is replaced with the BENCHRX test message before submission. This supports nested Gradio input structures without hardcoding a particular Space.
+
+Example ChatInterface-style configuration:
+
+- Space URL: `https://example-space.hf.space`
+- API name: `chat`
+- Input JSON: `["{{message}}"]`
+- Output index: `0`
+
+Public unauthenticated Spaces only in this first version. Private/local destinations remain blocked. Hugging Face authentication and ZeroGPU quota handling are not included yet.
