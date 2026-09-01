@@ -87,6 +87,47 @@ function buildCustomEndpoint(request: Request, body: Record<string, unknown>) {
   return endpoint.toString();
 }
 
+function buildGradioEndpoint(request: Request, body: Record<string, unknown>) {
+  const spaceUrl = String(body.spaceUrl ?? "").trim();
+  const apiName = String(body.apiName ?? "chat").trim() || "chat";
+  const gradioInputs = String(body.gradioInputs ?? "[]").trim() || "[]";
+  const outputIndex = String(body.outputIndex ?? "0").trim() || "0";
+
+  if (!spaceUrl) {
+    throw new Error("Gradio Space URL is required.");
+  }
+
+  let parsedSpace: URL;
+  try {
+    parsedSpace = new URL(spaceUrl);
+  } catch {
+    throw new Error("Enter a valid Gradio Space URL.");
+  }
+
+  if (parsedSpace.protocol !== "https:") {
+    throw new Error("Gradio Space endpoints must use HTTPS.");
+  }
+
+  try {
+    const parsedInputs = JSON.parse(gradioInputs);
+    if (!Array.isArray(parsedInputs)) throw new Error();
+  } catch {
+    throw new Error("Gradio input JSON must be a valid JSON array.");
+  }
+
+  const parsedOutputIndex = Number(outputIndex);
+  if (!Number.isInteger(parsedOutputIndex) || parsedOutputIndex < 0) {
+    throw new Error("Gradio output index must be a non-negative integer.");
+  }
+
+  const endpoint = new URL("/api/adapters/gradio", new URL(request.url).origin);
+  endpoint.searchParams.set("space", parsedSpace.origin);
+  endpoint.searchParams.set("apiName", apiName);
+  endpoint.searchParams.set("inputs", gradioInputs);
+  endpoint.searchParams.set("outputIndex", outputIndex);
+  return endpoint.toString();
+}
+
 export async function GET() {
   const supabase = getServerSupabase();
 
@@ -146,6 +187,15 @@ export async function POST(request: Request) {
       } catch (error) {
         return NextResponse.json(
           { error: error instanceof Error ? error.message : "Invalid custom connection." },
+          { status: 400 }
+        );
+      }
+    } else if (connectionType === "gradio") {
+      try {
+        endpointUrl = buildGradioEndpoint(request, body);
+      } catch (error) {
+        return NextResponse.json(
+          { error: error instanceof Error ? error.message : "Invalid Gradio connection." },
           { status: 400 }
         );
       }
