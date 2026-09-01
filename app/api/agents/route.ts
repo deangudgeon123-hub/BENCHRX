@@ -49,6 +49,33 @@ async function triggerBenchmarkWorker(runId: string) {
   }
 }
 
+function buildCustomEndpoint(request: Request, body: Record<string, unknown>) {
+  const targetUrl = String(body.targetUrl ?? "").trim();
+  const requestPath = String(body.requestPath ?? "message").trim() || "message";
+  const responsePath = String(body.responsePath ?? "response").trim() || "response";
+
+  if (!targetUrl) {
+    throw new Error("Custom target URL is required.");
+  }
+
+  let target: URL;
+  try {
+    target = new URL(targetUrl);
+  } catch {
+    throw new Error("Enter a valid custom target URL.");
+  }
+
+  if (target.protocol !== "https:") {
+    throw new Error("Custom agent endpoints must use HTTPS.");
+  }
+
+  const endpoint = new URL("/api/adapters/generic", new URL(request.url).origin);
+  endpoint.searchParams.set("target", target.toString());
+  endpoint.searchParams.set("requestPath", requestPath);
+  endpoint.searchParams.set("responsePath", responsePath);
+  return endpoint.toString();
+}
+
 export async function GET() {
   const supabase = getServerSupabase();
 
@@ -95,11 +122,23 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const body = (await request.json()) as Record<string, unknown>;
     const name = String(body.name ?? "").trim();
     const category = String(body.category ?? "general").trim().toLowerCase();
-    const endpointUrl = String(body.endpointUrl ?? "").trim();
     const description = String(body.description ?? "").trim();
+    const connectionType = String(body.connectionType ?? "native").trim().toLowerCase();
+
+    let endpointUrl = String(body.endpointUrl ?? "").trim();
+    if (connectionType === "custom") {
+      try {
+        endpointUrl = buildCustomEndpoint(request, body);
+      } catch (error) {
+        return NextResponse.json(
+          { error: error instanceof Error ? error.message : "Invalid custom connection." },
+          { status: 400 }
+        );
+      }
+    }
 
     if (!name || !endpointUrl) {
       return NextResponse.json(
