@@ -62,6 +62,7 @@ export default function BenchmarkPage() {
     const targetUrl = String(form.get("targetUrl") ?? "").trim();
     const requestPath = String(form.get("requestPath") ?? "message").trim();
     const responsePath = String(form.get("responsePath") ?? "response").trim();
+    const fixedBody = String(form.get("fixedBody") ?? "{}").trim() || "{}";
 
     setConnectionStatus("");
     setError("");
@@ -76,7 +77,7 @@ export default function BenchmarkPage() {
       const response = await fetch("/api/connections/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ targetUrl, requestPath, responsePath }),
+        body: JSON.stringify({ targetUrl, requestPath, responsePath, fixedBody }),
       });
       const data = await response.json();
 
@@ -110,6 +111,7 @@ export default function BenchmarkPage() {
       targetUrl: String(form.get("targetUrl") ?? ""),
       requestPath: String(form.get("requestPath") ?? "message"),
       responsePath: String(form.get("responsePath") ?? "response"),
+      fixedBody: String(form.get("fixedBody") ?? "{}"),
     };
 
     try {
@@ -299,7 +301,7 @@ export default function BenchmarkPage() {
                     name="targetUrl"
                     type="url"
                     required
-                    placeholder="https://api.example.com/chat"
+                    placeholder="https://api.example.com/v1/chat/completions"
                     className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3.5 text-white outline-none transition placeholder:text-white/25 focus:border-[var(--accent)]/50"
                   />
                 </label>
@@ -311,7 +313,7 @@ export default function BenchmarkPage() {
                       name="requestPath"
                       type="text"
                       defaultValue="message"
-                      placeholder="input.message"
+                      placeholder="messages[0].content"
                       className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3.5 font-mono text-sm text-white outline-none transition placeholder:text-white/25 focus:border-[var(--accent)]/50"
                     />
                   </label>
@@ -322,14 +324,28 @@ export default function BenchmarkPage() {
                       name="responsePath"
                       type="text"
                       defaultValue="response"
-                      placeholder="result.answer"
+                      placeholder="choices[0].message.content"
                       className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3.5 font-mono text-sm text-white outline-none transition placeholder:text-white/25 focus:border-[var(--accent)]/50"
                     />
                   </label>
                 </div>
 
+                <label className="mt-4 block">
+                  <span className="mb-2 block text-sm font-bold">Fixed request JSON (optional)</span>
+                  <textarea
+                    name="fixedBody"
+                    rows={5}
+                    defaultValue="{}"
+                    placeholder={'{"model":"example-model","messages":[{"role":"user","content":""}]}'}
+                    className="w-full resize-y rounded-2xl border border-white/10 bg-black/20 px-4 py-3.5 font-mono text-sm text-white outline-none transition placeholder:text-white/25 focus:border-[var(--accent)]/50"
+                  />
+                  <span className="mt-2 block text-xs leading-5 text-[var(--muted)]">
+                    Add fields the API always requires, such as model or role. BENCHRX writes each test message into the message path above.
+                  </span>
+                </label>
+
                 <p className="mt-3 text-xs leading-5 text-[var(--muted)]">
-                  Public unauthenticated JSON endpoints only in this first connector version. Private/local addresses and redirects are blocked.
+                  Dot paths and array indexes are supported. Public unauthenticated JSON endpoints only in this first connector version. Private/local addresses and redirects are blocked.
                 </p>
 
                 <button
