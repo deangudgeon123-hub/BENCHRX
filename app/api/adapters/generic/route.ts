@@ -1,5 +1,5 @@
 import { isIP } from "node:net";
-import { resolve } from "node:dns/promises";
+import { lookup } from "node:dns/promises";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -84,7 +84,7 @@ async function validatePublicHttpsUrl(rawUrl: string) {
 
   let addresses: { address: string }[];
   try {
-    addresses = await resolve(hostname);
+    addresses = await lookup(hostname, { all: true, verbatim: true });
   } catch {
     throw new Error("Could not resolve the target hostname.");
   }
