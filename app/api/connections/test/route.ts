@@ -39,9 +39,18 @@ export async function POST(request: Request) {
       adapter.searchParams.set("fixedBody", fixedBody);
     }
 
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+
+    const protectionBypass = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+    if (protectionBypass) {
+      headers["x-vercel-protection-bypass"] = protectionBypass;
+    }
+
     const response = await fetch(adapter, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({
         message: "Reply briefly to confirm this BENCHRX connection test was received.",
       }),
