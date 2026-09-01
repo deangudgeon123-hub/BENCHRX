@@ -53,6 +53,7 @@ function buildCustomEndpoint(request: Request, body: Record<string, unknown>) {
   const targetUrl = String(body.targetUrl ?? "").trim();
   const requestPath = String(body.requestPath ?? "message").trim() || "message";
   const responsePath = String(body.responsePath ?? "response").trim() || "response";
+  const fixedBody = String(body.fixedBody ?? "{}").trim() || "{}";
 
   if (!targetUrl) {
     throw new Error("Custom target URL is required.");
@@ -69,10 +70,20 @@ function buildCustomEndpoint(request: Request, body: Record<string, unknown>) {
     throw new Error("Custom agent endpoints must use HTTPS.");
   }
 
+  try {
+    const parsed = JSON.parse(fixedBody);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error();
+    }
+  } catch {
+    throw new Error("Fixed request JSON must be a valid JSON object.");
+  }
+
   const endpoint = new URL("/api/adapters/generic", new URL(request.url).origin);
   endpoint.searchParams.set("target", target.toString());
   endpoint.searchParams.set("requestPath", requestPath);
   endpoint.searchParams.set("responsePath", responsePath);
+  endpoint.searchParams.set("fixedBody", fixedBody);
   return endpoint.toString();
 }
 
