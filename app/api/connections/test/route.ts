@@ -6,6 +6,7 @@ export async function POST(request: Request) {
     const targetUrl = String(body.targetUrl ?? "").trim();
     const requestPath = String(body.requestPath ?? "message").trim();
     const responsePath = String(body.responsePath ?? "response").trim();
+    const fixedBody = String(body.fixedBody ?? "{}").trim() || "{}";
 
     if (!targetUrl) {
       return NextResponse.json({ error: "Target URL is required." }, { status: 400 });
@@ -16,6 +17,7 @@ export async function POST(request: Request) {
     adapter.searchParams.set("target", targetUrl);
     adapter.searchParams.set("requestPath", requestPath || "message");
     adapter.searchParams.set("responsePath", responsePath || "response");
+    adapter.searchParams.set("fixedBody", fixedBody);
 
     const response = await fetch(adapter, {
       method: "POST",
