@@ -3,21 +3,41 @@ import { NextResponse } from "next/server";
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const targetUrl = String(body.targetUrl ?? "").trim();
-    const requestPath = String(body.requestPath ?? "message").trim();
-    const responsePath = String(body.responsePath ?? "response").trim();
-    const fixedBody = String(body.fixedBody ?? "{}").trim() || "{}";
-
-    if (!targetUrl) {
-      return NextResponse.json({ error: "Target URL is required." }, { status: 400 });
-    }
-
+    const connectionType = String(body.connectionType ?? "custom").trim().toLowerCase();
     const origin = new URL(request.url).origin;
-    const adapter = new URL("/api/adapters/generic", origin);
-    adapter.searchParams.set("target", targetUrl);
-    adapter.searchParams.set("requestPath", requestPath || "message");
-    adapter.searchParams.set("responsePath", responsePath || "response");
-    adapter.searchParams.set("fixedBody", fixedBody);
+
+    let adapter: URL;
+    if (connectionType === "gradio") {
+      const spaceUrl = String(body.spaceUrl ?? "").trim();
+      const apiName = String(body.apiName ?? "chat").trim();
+      const gradioInputs = String(body.gradioInputs ?? "[]").trim() || "[]";
+      const outputIndex = String(body.outputIndex ?? "0").trim() || "0";
+
+      if (!spaceUrl) {
+        return NextResponse.json({ error: "Gradio Space URL is required." }, { status: 400 });
+      }
+
+      adapter = new URL("/api/adapters/gradio", origin);
+      adapter.searchParams.set("space", spaceUrl);
+      adapter.searchParams.set("apiName", apiName);
+      adapter.searchParams.set("inputs", gradioInputs);
+      adapter.searchParams.set("outputIndex", outputIndex);
+    } else {
+      const targetUrl = String(body.targetUrl ?? "").trim();
+      const requestPath = String(body.requestPath ?? "message").trim();
+      const responsePath = String(body.responsePath ?? "response").trim();
+      const fixedBody = String(body.fixedBody ?? "{}").trim() || "{}";
+
+      if (!targetUrl) {
+        return NextResponse.json({ error: "Target URL is required." }, { status: 400 });
+      }
+
+      adapter = new URL("/api/adapters/generic", origin);
+      adapter.searchParams.set("target", targetUrl);
+      adapter.searchParams.set("requestPath", requestPath || "message");
+      adapter.searchParams.set("responsePath", responsePath || "response");
+      adapter.searchParams.set("fixedBody", fixedBody);
+    }
 
     const response = await fetch(adapter, {
       method: "POST",
