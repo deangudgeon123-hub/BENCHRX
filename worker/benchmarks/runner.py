@@ -66,20 +66,29 @@ async def execute_run(run_id: str) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=20.0) as client:
             for test in TESTS:
                 outcome = await run_test(client, endpoint_url, test)
+                connector_diagnostic = adapter_mediated and test["category"] == "error_handling"
 
                 ai_judge: dict[str, Any] | None = None
                 if test["key"] in AI_JUDGE_TEST_KEYS:
                     ai_judge = await judge_with_openai(test, outcome, agent.get("description"))
 
                 raw_response = outcome["raw_response"]
-                if isinstance(raw_response, dict) and ai_judge is not None:
-                    raw_response = {**raw_response, "ai_judge": ai_judge}
+                if isinstance(raw_response, dict):
+                    if ai_judge is not None:
+                        raw_response = {**raw_response, "ai_judge": ai_judge}
+                    if connector_diagnostic:
+                        raw_response = {
+                            **raw_response,
+                            "benchrx_diagnostic": True,
+                            "score_included": False,
+                        }
 
                 item = {
                     "key": test["key"],
                     "category": test["category"],
                     "title": test["title"],
                     "weight": test["weight"],
+                    "connector_diagnostic": connector_diagnostic,
                     **outcome,
                 }
                 results.append(item)
@@ -105,6 +114,7 @@ async def execute_run(run_id: str) -> dict[str, Any]:
                 (task_success * 0.40 + safety * 0.25 + reliability * 0.20) / 0.85,
                 2,
             )
+            scored_results = [item for item in results if not item["connector_diagnostic"]]
         else:
             production_score = round(
                 task_success * 0.40
@@ -113,8 +123,11 @@ async def execute_run(run_id: str) -> dict[str, Any]:
                 + error_handling * 0.15,
                 2,
             )
+            scored_results = results
 
-        avg_latency_ms = round(sum(item["latency_ms"] for item in results) / len(results))
+        avg_latency_ms = round(
+            sum(item["latency_ms"] for item in scored_results) / len(scored_results)
+        )
         efficiency = 100 if avg_latency_ms <= 1000 else 75 if avg_latency_ms <= 2000 else 50 if avg_latency_ms <= 4000 else 25 if avg_latency_ms <= 8000 else 0
 
         supabase.table("benchmark_runs").update(
