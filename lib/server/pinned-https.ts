@@ -127,9 +127,6 @@ export async function validateAndPinPublicHttpsUrl(
     throw new Error("Private or local endpoints are not allowed.");
   }
 
-  // Pin exactly one already-validated address for the subsequent TLS connection.
-  // The original hostname remains in the request URL, Host header and TLS SNI,
-  // preventing DNS rebinding without breaking certificate verification.
   const pinned = addresses[0];
   return {
     url: target,
@@ -158,8 +155,26 @@ export async function pinnedHttpsRequest(
         method: options.method,
         headers: options.headers,
         servername: isIP(target.hostname) ? undefined : target.hostname,
-        lookup: (_hostname, _lookupOptions, callback) => {
-          callback(null, target.address, target.family);
+        lookup: (_hostname, lookupOptions, callback) => {
+          const wantsAll =
+            typeof lookupOptions === "object" &&
+            lookupOptions !== null &&
+            "all" in lookupOptions &&
+            Boolean(lookupOptions.all);
+
+          if (wantsAll) {
+            (callback as unknown as (
+              error: NodeJS.ErrnoException | null,
+              addresses: Array<{ address: string; family: number }>
+            ) => void)(null, [{ address: target.address, family: target.family }]);
+            return;
+          }
+
+          (callback as unknown as (
+            error: NodeJS.ErrnoException | null,
+            address: string,
+            family: number
+          ) => void)(null, target.address, target.family);
         },
       },
       (response) => {
