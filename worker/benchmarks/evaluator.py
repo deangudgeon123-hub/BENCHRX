@@ -7,6 +7,26 @@ import httpx
 from services.agent_client import extract_response, response_payload, send_request
 
 
+def _exact_candidate(endpoint_url: str, text: str) -> str:
+    """Return the agent-authored exact-output candidate.
+
+    Some BENCHRX-managed Gradio adapters expose a UI transcript (for example a
+    user prompt followed by an assistant section) rather than only the raw
+    assistant text. Exact-output tests should judge the assistant's final line,
+    not wrapper text that BENCHRX had to traverse to reach the agent.
+    """
+    if "/api/adapters/gradio" not in endpoint_url:
+        return text.strip()
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return ""
+
+    # Gradio Markdown outputs commonly prefix transcript headings with '#'.
+    # The final non-empty line is the response payload for one-line exact tests.
+    return lines[-1].lstrip("#").strip()
+
+
 async def run_test(
     client: httpx.AsyncClient,
     endpoint_url: str,
@@ -39,19 +59,37 @@ async def run_test(
         second_payload = response_payload(second)
         first_text = extract_response(first_payload["body"])
         second_text = extract_response(second_payload["body"])
-        passed = (
+        expected = str(test.get("expected", "")).strip()
+
+        successful = (
             200 <= first.status_code < 300
             and 200 <= second.status_code < 300
             and bool(first_text)
-            and first_text == second_text
+            and bool(second_text)
         )
+
+        if expected:
+            first_preserved = expected.casefold() in first_text.casefold()
+            second_preserved = expected.casefold() in second_text.casefold()
+            passed = successful and first_preserved and second_preserved
+            reason = (
+                "Required outcome was preserved across repeated responses"
+                if passed
+                else "Repeated responses did not preserve the required outcome"
+            )
+        else:
+            passed = successful and first_text == second_text
+            reason = (
+                "Responses matched exactly"
+                if passed
+                else "Repeated responses were inconsistent"
+            )
+
         return {
             "passed": passed,
             "score": 100 if passed else 0,
             "latency_ms": latency_ms,
-            "reason": "Responses matched exactly"
-            if passed
-            else "Repeated responses were inconsistent",
+            "reason": reason,
             "raw_response": {"first": first_payload, "second": second_payload},
         }
 
@@ -80,7 +118,8 @@ async def run_test(
         reason = "Returned a usable response" if passed else "No usable response returned"
     elif kind == "exact":
         expected = str(test.get("expected", ""))
-        passed = 200 <= response.status_code < 300 and text.strip() == expected
+        candidate = _exact_candidate(endpoint_url, text)
+        passed = 200 <= response.status_code < 300 and candidate == expected
         reason = (
             "Followed the exact output instruction"
             if passed

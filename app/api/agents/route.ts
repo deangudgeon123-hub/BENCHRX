@@ -49,6 +49,85 @@ async function triggerBenchmarkWorker(runId: string) {
   }
 }
 
+function buildCustomEndpoint(request: Request, body: Record<string, unknown>) {
+  const targetUrl = String(body.targetUrl ?? "").trim();
+  const requestPath = String(body.requestPath ?? "message").trim() || "message";
+  const responsePath = String(body.responsePath ?? "response").trim() || "response";
+  const fixedBody = String(body.fixedBody ?? "{}").trim() || "{}";
+
+  if (!targetUrl) {
+    throw new Error("Custom target URL is required.");
+  }
+
+  let target: URL;
+  try {
+    target = new URL(targetUrl);
+  } catch {
+    throw new Error("Enter a valid custom target URL.");
+  }
+
+  if (target.protocol !== "https:") {
+    throw new Error("Custom agent endpoints must use HTTPS.");
+  }
+
+  try {
+    const parsed = JSON.parse(fixedBody);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error();
+    }
+  } catch {
+    throw new Error("Fixed request JSON must be a valid JSON object.");
+  }
+
+  const endpoint = new URL("/api/adapters/generic", new URL(request.url).origin);
+  endpoint.searchParams.set("target", target.toString());
+  endpoint.searchParams.set("requestPath", requestPath);
+  endpoint.searchParams.set("responsePath", responsePath);
+  endpoint.searchParams.set("fixedBody", fixedBody);
+  return endpoint.toString();
+}
+
+function buildGradioEndpoint(request: Request, body: Record<string, unknown>) {
+  const spaceUrl = String(body.spaceUrl ?? "").trim();
+  const apiName = String(body.apiName ?? "chat").trim() || "chat";
+  const gradioInputs = String(body.gradioInputs ?? "[]").trim() || "[]";
+  const outputIndex = String(body.outputIndex ?? "0").trim() || "0";
+
+  if (!spaceUrl) {
+    throw new Error("Gradio Space URL is required.");
+  }
+
+  let parsedSpace: URL;
+  try {
+    parsedSpace = new URL(spaceUrl);
+  } catch {
+    throw new Error("Enter a valid Gradio Space URL.");
+  }
+
+  if (parsedSpace.protocol !== "https:") {
+    throw new Error("Gradio Space endpoints must use HTTPS.");
+  }
+
+  try {
+    const parsedInputs = JSON.parse(gradioInputs);
+    if (!Array.isArray(parsedInputs)) throw new Error();
+  } catch {
+    throw new Error("Gradio input JSON must be a valid JSON array.");
+  }
+
+  const parsedOutputIndex = Number(outputIndex);
+  if (!Number.isInteger(parsedOutputIndex) || parsedOutputIndex < 0) {
+    throw new Error("Gradio output index must be a non-negative integer.");
+  }
+
+  const endpoint = new URL("/api/adapters/gradio", new URL(request.url).origin);
+  endpoint.searchParams.set("space", parsedSpace.origin);
+  endpoint.searchParams.set("apiName", apiName);
+  endpoint.searchParams.set("inputs", gradioInputs);
+  endpoint.searchParams.set("outputIndex", outputIndex);
+  return endpoint.toString();
+}
+
 export async function GET() {
   const supabase = getServerSupabase();
 
@@ -95,11 +174,32 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const body = (await request.json()) as Record<string, unknown>;
     const name = String(body.name ?? "").trim();
     const category = String(body.category ?? "general").trim().toLowerCase();
-    const endpointUrl = String(body.endpointUrl ?? "").trim();
     const description = String(body.description ?? "").trim();
+    const connectionType = String(body.connectionType ?? "native").trim().toLowerCase();
+
+    let endpointUrl = String(body.endpointUrl ?? "").trim();
+    if (connectionType === "custom") {
+      try {
+        endpointUrl = buildCustomEndpoint(request, body);
+      } catch (error) {
+        return NextResponse.json(
+          { error: error instanceof Error ? error.message : "Invalid custom connection." },
+          { status: 400 }
+        );
+      }
+    } else if (connectionType === "gradio") {
+      try {
+        endpointUrl = buildGradioEndpoint(request, body);
+      } catch (error) {
+        return NextResponse.json(
+          { error: error instanceof Error ? error.message : "Invalid Gradio connection." },
+          { status: 400 }
+        );
+      }
+    }
 
     if (!name || !endpointUrl) {
       return NextResponse.json(
