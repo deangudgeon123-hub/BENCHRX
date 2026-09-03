@@ -1,6 +1,8 @@
-import { isIP } from "node:net";
-import { resolve4, resolve6 } from "node:dns/promises";
 import { NextResponse } from "next/server";
+import {
+  pinnedHttpsRequest,
+  validateAndPinPublicHttpsUrl,
+} from "@/lib/server/pinned-https";
 
 export const runtime = "nodejs";
 
@@ -11,104 +13,9 @@ const PATH_PART_PATTERN = /^[A-Za-z0-9_$-]+$/;
 type JsonObject = Record<string, unknown>;
 type PathPart = string | number;
 
-function isPrivateIpv4(ip: string) {
-  const octets = ip.split(".").map(Number);
-  if (octets.length !== 4 || octets.some((value) => Number.isNaN(value))) return true;
-
-  const [a, b] = octets;
-  return (
-    a === 0 ||
-    a === 10 ||
-    a === 127 ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    (a === 100 && b >= 64 && b <= 127) ||
-    a >= 224
-  );
-}
-
-function isPrivateIpv6(ip: string) {
-  const normalized = ip.toLowerCase();
-  return (
-    normalized === "::" ||
-    normalized === "::1" ||
-    normalized.startsWith("fc") ||
-    normalized.startsWith("fd") ||
-    normalized.startsWith("fe8") ||
-    normalized.startsWith("fe9") ||
-    normalized.startsWith("fea") ||
-    normalized.startsWith("feb") ||
-    normalized.startsWith("::ffff:127.") ||
-    normalized.startsWith("::ffff:10.") ||
-    normalized.startsWith("::ffff:192.168.")
-  );
-}
-
-function isPrivateIp(ip: string) {
-  const version = isIP(ip);
-  if (version === 4) return isPrivateIpv4(ip);
-  if (version === 6) return isPrivateIpv6(ip);
-  return true;
-}
-
-async function validatePublicHttpsUrl(rawUrl: string) {
-  let target: URL;
-  try {
-    target = new URL(rawUrl);
-  } catch {
-    throw new Error("Enter a valid target URL.");
-  }
-
-  if (target.protocol !== "https:") {
-    throw new Error("Custom agent endpoints must use HTTPS.");
-  }
-
-  if (target.username || target.password) {
-    throw new Error("Credentials are not allowed in the target URL.");
-  }
-
-  const hostname = target.hostname.toLowerCase();
-  if (
-    hostname === "localhost" ||
-    hostname.endsWith(".localhost") ||
-    hostname.endsWith(".local") ||
-    hostname.endsWith(".internal")
-  ) {
-    throw new Error("Private or local endpoints are not allowed.");
-  }
-
-  if (isIP(hostname)) {
-    if (isPrivateIp(hostname)) {
-      throw new Error("Private or local endpoints are not allowed.");
-    }
-    return target;
-  }
-
-  const addresses: string[] = [];
-  try {
-    addresses.push(...(await resolve4(hostname)));
-  } catch {
-    // Some public hosts are IPv6-only.
-  }
-  try {
-    addresses.push(...(await resolve6(hostname)));
-  } catch {
-    // Some public hosts are IPv4-only.
-  }
-
-  if (!addresses.length || addresses.some((address) => isPrivateIp(address))) {
-    throw new Error("Private or local endpoints are not allowed.");
-  }
-
-  return target;
-}
-
 function parsePath(value: string, label: string): PathPart[] {
   const trimmed = value.trim();
-  if (!trimmed) {
-    throw new Error(`${label} must be a JSON path.`);
-  }
+  if (!trimmed) throw new Error(`${label} must be a JSON path.`);
 
   const normalized = trimmed.replace(/\[(\d+)\]/g, ".$1");
   const rawParts = normalized.split(".");
@@ -170,24 +77,19 @@ function setPath(rootValue: JsonObject, parts: PathPart[], value: unknown) {
     }
 
     const shouldBeArray = typeof nextPart === "number";
-
     if (typeof part === "number") {
       if (!Array.isArray(cursor)) {
         throw new Error("Request JSON path uses an array index where the body is not an array.");
       }
       const current = cursor[part];
-      if (!current || typeof current !== "object") {
-        cursor[part] = shouldBeArray ? [] : {};
-      }
+      if (!current || typeof current !== "object") cursor[part] = shouldBeArray ? [] : {};
       cursor = cursor[part] as JsonObject | unknown[];
     } else {
       if (Array.isArray(cursor)) {
         throw new Error("Request JSON path uses an object field where an array index is required.");
       }
       const current = cursor[part];
-      if (!current || typeof current !== "object") {
-        cursor[part] = shouldBeArray ? [] : {};
-      }
+      if (!current || typeof current !== "object") cursor[part] = shouldBeArray ? [] : {};
       cursor = cursor[part] as JsonObject | unknown[];
     }
   });
@@ -243,20 +145,6 @@ function getPath(value: unknown, parts: PathPart[]): unknown {
   return cursor;
 }
 
-async function readLimitedBody(response: Response) {
-  const contentLength = Number(response.headers.get("content-length") ?? "0");
-  if (Number.isFinite(contentLength) && contentLength > MAX_RESPONSE_BYTES) {
-    throw new Error("Agent response was too large.");
-  }
-
-  const text = await response.text();
-  if (new TextEncoder().encode(text).byteLength > MAX_RESPONSE_BYTES) {
-    throw new Error("Agent response was too large.");
-  }
-
-  return text;
-}
-
 export async function POST(request: Request) {
   try {
     const adapterUrl = new URL(request.url);
@@ -268,33 +156,29 @@ export async function POST(request: Request) {
     const requestPath = parsePath(requestPathRaw, "Request field");
     const responsePath = parsePath(responsePathRaw, "Response field");
     const fixedBody = parseFixedBody(fixedBodyRaw);
-    const target = await validatePublicHttpsUrl(targetRaw);
+    const target = await validateAndPinPublicHttpsUrl(targetRaw, {
+      invalidUrlMessage: "Enter a valid target URL.",
+      httpsRequiredMessage: "Custom agent endpoints must use HTTPS.",
+    });
 
     const incoming = await request.json().catch(() => ({}));
     const hasMessage =
-      incoming && typeof incoming === "object" && Object.prototype.hasOwnProperty.call(incoming, "message");
+      incoming &&
+      typeof incoming === "object" &&
+      Object.prototype.hasOwnProperty.call(incoming, "message");
     const message = hasMessage ? (incoming as { message?: unknown }).message : undefined;
 
     const upstreamBody = hasMessage
       ? setPath(fixedBody, requestPath, message)
       : deletePath(fixedBody, requestPath);
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-    let response: Response;
-    try {
-      response = await fetch(target, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(upstreamBody),
-        cache: "no-store",
-        redirect: "manual",
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timeout);
-    }
+    const response = await pinnedHttpsRequest(target, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(upstreamBody),
+      timeoutMs: REQUEST_TIMEOUT_MS,
+      maxResponseBytes: MAX_RESPONSE_BYTES,
+    });
 
     if (response.status >= 300 && response.status < 400) {
       return NextResponse.json(
@@ -303,22 +187,21 @@ export async function POST(request: Request) {
       );
     }
 
-    const rawText = await readLimitedBody(response);
     let payload: unknown = null;
     try {
-      payload = rawText ? JSON.parse(rawText) : null;
+      payload = response.text ? JSON.parse(response.text) : null;
     } catch {
-      payload = { text: rawText };
+      payload = { text: response.text };
     }
 
-    if (!response.ok) {
+    if (response.status < 200 || response.status >= 300) {
       return NextResponse.json(
         {
           error: "Custom agent request failed",
           upstreamStatus: response.status,
           upstream: payload,
         },
-        { status: response.status }
+        { status: response.status || 502 }
       );
     }
 
