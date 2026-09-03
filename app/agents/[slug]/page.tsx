@@ -158,8 +158,11 @@ export default async function AgentScorecardPage({ params }: PageProps) {
   const productionScore = Number(run?.production_score ?? 0);
   const previousScore = previousRun ? Number(previousRun.production_score ?? 0) : null;
   const scoreDelta = previousScore === null ? null : productionScore - previousScore;
-  const passedCount = results.filter((result) => result.passed).length;
-  const failedCount = results.length - passedCount;
+  const scoredResults = results.filter((result) => result.raw_response?.score_included !== false);
+  const diagnosticResults = results.filter((result) => result.raw_response?.score_included === false);
+  const passedCount = scoredResults.filter((result) => result.passed).length;
+  const failedCount = scoredResults.length - passedCount;
+  const diagnosticPassedCount = diagnosticResults.filter((result) => result.passed).length;
   const aiResults = results
     .map((result) => ({
       result,
@@ -249,7 +252,19 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                   <ScoreBar label="Task success" value={run.task_success_score} />
                   <ScoreBar label="Reliability" value={run.reliability_score} />
                   <ScoreBar label="Safety" value={run.safety_score} />
-                  <ScoreBar label="Error handling" value={run.error_handling_score} />
+                  {diagnosticResults.length > 0 ? (
+                    <div className="rounded-2xl border border-white/8 bg-white/[0.025] p-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-semibold text-white">Connector diagnostics</p>
+                          <p className="mt-1 text-xs leading-5 text-[var(--muted)]">BENCHRX-managed adapter checks. Reported for transparency and not included in the production score.</p>
+                        </div>
+                        <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-black text-[var(--muted)]">{diagnosticPassedCount}/{diagnosticResults.length} passed</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <ScoreBar label="Error handling" value={run.error_handling_score} />
+                  )}
                   <ScoreBar label="Efficiency" value={run.efficiency_score} />
                 </div>
               </div>
@@ -258,7 +273,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
             <div className="mt-8 grid gap-4 md:grid-cols-3">
               <div className="rounded-3xl border border-[var(--accent)]/20 bg-[var(--surface)] p-6">
                 <div className="flex items-center justify-between gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--accent)]/10 text-[var(--accent)]"><Eye size={19} /></div><span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-200">Active</span></div>
-                <h3 className="mt-5 text-lg font-black">Blind resilience</h3><p className="mt-2 text-sm leading-6 text-[var(--muted)]">Universal checks for reliability, safety, ambiguity, malformed input and repeatability.</p>
+                <h3 className="mt-5 text-lg font-black">Blind resilience</h3><p className="mt-2 text-sm leading-6 text-[var(--muted)]">Universal scored checks for task handling, reliability, safety and ambiguity. BENCHRX-managed connector diagnostics are reported separately.</p>
               </div>
               <div className="rounded-3xl border border-white/8 bg-[var(--surface)] p-6">
                 <div className="flex items-center justify-between gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/5 text-white"><Target size={19} /></div><span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-[var(--muted)]">Planned</span></div>
@@ -316,30 +331,36 @@ export default async function AgentScorecardPage({ params }: PageProps) {
 
             <div className="mt-10">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                <div><p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--accent)]">Evidence</p><h2 className="mt-3 text-3xl font-black tracking-[-0.035em]">Blind resilience evidence</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--muted)]">Observed behaviour from the latest completed run.</p></div>
+                <div><p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--accent)]">Evidence</p><h2 className="mt-3 text-3xl font-black tracking-[-0.035em]">Blind resilience evidence</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--muted)]">Observed behaviour from the latest completed run. Connector diagnostics are retained for transparency but are not scored as agent behaviour.</p></div>
                 <p className="text-sm text-[var(--muted)]">Run {run.id.slice(0, 8)}</p>
               </div>
               <div className="mt-6 overflow-hidden rounded-3xl border border-white/8 bg-[var(--surface)]">
                 {results.map((result, index) => {
                   const testCase = Array.isArray(result.test_cases) ? result.test_cases[0] : result.test_cases;
+                  const diagnostic = result.raw_response?.score_included === false;
                   return (
                     <div key={result.id} className={`flex flex-col gap-5 p-6 sm:flex-row sm:items-center sm:justify-between sm:p-7 ${index !== results.length - 1 ? "border-b border-white/8" : ""}`}>
                       <div className="flex min-w-0 items-start gap-4">
-                        <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border ${result.passed ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300" : "border-red-500/20 bg-red-500/10 text-red-300"}`}>{result.passed ? <CheckCircle2 size={18} /> : <XCircle size={18} />}</div>
+                        <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border ${diagnostic ? "border-white/10 bg-white/5 text-[var(--muted)]" : result.passed ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300" : "border-red-500/20 bg-red-500/10 text-red-300"}`}>{diagnostic ? <CircleGauge size={18} /> : result.passed ? <CheckCircle2 size={18} /> : <XCircle size={18} />}</div>
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
                             <p className="font-black text-white">{testCase?.title ?? "BENCHRX test"}</p>
-                            <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${result.passed ? "bg-emerald-500/10 text-emerald-200" : "bg-red-500/10 text-red-200"}`}>{result.passed ? "Passed" : "Failed"}</span>
+                            {diagnostic ? (
+                              <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-[var(--muted)]">Connector diagnostic</span>
+                            ) : (
+                              <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${result.passed ? "bg-emerald-500/10 text-emerald-200" : "bg-red-500/10 text-red-200"}`}>{result.passed ? "Passed" : "Failed"}</span>
+                            )}
                             <span className="rounded-full border border-[var(--accent)]/15 bg-[var(--accent)]/8 px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-[var(--accent)]">Blind</span>
                             {result.raw_response?.ai_judge ? <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-amber-200">AI judged</span> : null}
                             {testCase?.category ? <span className="rounded-full bg-white/5 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">{prettyCategory(testCase.category)}</span> : null}
                           </div>
                           <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{result.judge_reason ?? testCase?.description ?? "Benchmark check completed."}</p>
+                          {diagnostic ? <p className="mt-1 text-xs font-semibold text-[var(--muted)]">This result describes the BENCHRX-managed connector contract and is not included in the agent production score.</p> : null}
                         </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-6 pl-13 text-sm sm:pl-0">
                         <div className="text-right"><p className="text-xs text-[var(--muted)]">Latency</p><p className="mt-1 font-bold tabular-nums text-white">{Number(result.latency_ms ?? 0).toLocaleString()} ms</p></div>
-                        <div className="min-w-12 text-right"><p className="text-xs text-[var(--muted)]">Score</p><p className="mt-1 font-black tabular-nums text-white">{Number(result.score ?? 0).toFixed(0)}</p></div>
+                        <div className="min-w-16 text-right"><p className="text-xs text-[var(--muted)]">{diagnostic ? "Scoring" : "Score"}</p><p className="mt-1 font-black tabular-nums text-white">{diagnostic ? "Not scored" : Number(result.score ?? 0).toFixed(0)}</p></div>
                       </div>
                     </div>
                   );
@@ -375,7 +396,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
             </div>
 
             <div className="mt-8 flex flex-col gap-4 rounded-3xl border border-white/8 bg-white/[0.025] p-6 text-sm leading-6 text-[var(--muted)] sm:flex-row sm:items-center sm:justify-between">
-              <p className="max-w-3xl">This score currently reflects BENCHRX blind resilience checks only. AI shadow judgments are displayed for calibration but are not yet included in the production score.</p>
+              <p className="max-w-3xl">This score currently reflects BENCHRX blind resilience checks only. BENCHRX-managed connector diagnostics and AI shadow judgments are displayed for transparency but are not included in the production score.</p>
               <Link href="/benchmark" className="shrink-0 rounded-full border border-white/12 px-5 py-2.5 font-bold text-white transition hover:border-[var(--accent)]/60">Benchmark another agent</Link>
             </div>
           </>
