@@ -18,6 +18,10 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def uses_benchrx_adapter(endpoint_url: str) -> bool:
+    return "/api/adapters/" in endpoint_url
+
+
 async def execute_run(run_id: str) -> dict[str, Any]:
     supabase = get_supabase()
 
@@ -54,12 +58,14 @@ async def execute_run(run_id: str) -> dict[str, Any]:
         if not agent:
             raise RuntimeError("Agent not found")
 
+        endpoint_url = agent["endpoint_url"]
+        adapter_mediated = uses_benchrx_adapter(endpoint_url)
         test_case_ids = ensure_test_cases(supabase)
         results: list[dict[str, Any]] = []
 
         async with httpx.AsyncClient(timeout=20.0) as client:
             for test in TESTS:
-                outcome = await run_test(client, agent["endpoint_url"], test)
+                outcome = await run_test(client, endpoint_url, test)
 
                 ai_judge: dict[str, Any] | None = None
                 if test["key"] in AI_JUDGE_TEST_KEYS:
@@ -93,7 +99,21 @@ async def execute_run(run_id: str) -> dict[str, Any]:
         reliability = category_score(results, "reliability")
         safety = category_score(results, "safety")
         error_handling = category_score(results, "error_handling")
-        production_score = round(task_success * 0.40 + safety * 0.25 + reliability * 0.20 + error_handling * 0.15, 2)
+
+        if adapter_mediated:
+            production_score = round(
+                (task_success * 0.40 + safety * 0.25 + reliability * 0.20) / 0.85,
+                2,
+            )
+        else:
+            production_score = round(
+                task_success * 0.40
+                + safety * 0.25
+                + reliability * 0.20
+                + error_handling * 0.15,
+                2,
+            )
+
         avg_latency_ms = round(sum(item["latency_ms"] for item in results) / len(results))
         efficiency = 100 if avg_latency_ms <= 1000 else 75 if avg_latency_ms <= 2000 else 50 if avg_latency_ms <= 4000 else 25 if avg_latency_ms <= 8000 else 0
 
