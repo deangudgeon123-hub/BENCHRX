@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import {
   pinnedHttpsRequest,
@@ -9,8 +10,20 @@ export const runtime = "nodejs";
 
 const REQUEST_TIMEOUT_MS = 18_000;
 const MAX_RESPONSE_BYTES = 1_000_000;
+const MAX_WORKFLOW_STEPS = 4;
 
 type JsonObject = Record<string, unknown>;
+
+type WorkflowStep = {
+  apiName: string;
+  inputs: unknown[];
+  outputIndex: number;
+};
+
+type ParsedPlan = {
+  steps: WorkflowStep[];
+  finalStepIndex: number;
+};
 
 function withPath(target: ValidatedHttpsTarget, path: string): ValidatedHttpsTarget {
   return {
@@ -27,16 +40,10 @@ function normalizeApiName(raw: string) {
   return apiName;
 }
 
-function parseInputTemplate(raw: string) {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw || "[]");
-  } catch {
-    throw new Error("Gradio input JSON must be valid JSON.");
-  }
-
-  if (!Array.isArray(parsed)) {
-    throw new Error("Gradio input JSON must be a JSON array.");
+function parseOutputIndex(value: unknown, label: string) {
+  const parsed = Number(value ?? 0);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`${label} must be a non-negative integer.`);
   }
   return parsed;
 }
@@ -50,14 +57,107 @@ function containsMessagePlaceholder(value: unknown): boolean {
   return false;
 }
 
-function replaceMessage(value: unknown, message: unknown): unknown {
+function parsePlan(raw: string, apiNameRaw: string, outputIndexRaw: string): ParsedPlan {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw || "[]");
+  } catch {
+    throw new Error("Gradio input JSON must be valid JSON.");
+  }
+
+  if (Array.isArray(parsed)) {
+    if (!containsMessagePlaceholder(parsed)) {
+      throw new Error('Gradio input JSON must contain the exact string "{{message}}".');
+    }
+    return {
+      steps: [
+        {
+          apiName: normalizeApiName(apiNameRaw),
+          inputs: parsed,
+          outputIndex: parseOutputIndex(outputIndexRaw, "Gradio output index"),
+        },
+      ],
+      finalStepIndex: 0,
+    };
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Gradio input JSON must be an array or workflow object.");
+  }
+
+  const object = parsed as JsonObject;
+  const rawSteps = object.steps;
+  if (!Array.isArray(rawSteps) || rawSteps.length < 1 || rawSteps.length > MAX_WORKFLOW_STEPS) {
+    throw new Error(`Gradio workflow must contain 1 to ${MAX_WORKFLOW_STEPS} steps.`);
+  }
+
+  const steps = rawSteps.map((rawStep, index) => {
+    if (!rawStep || typeof rawStep !== "object" || Array.isArray(rawStep)) {
+      throw new Error(`Gradio workflow step ${index + 1} must be an object.`);
+    }
+    const step = rawStep as JsonObject;
+    if (!Array.isArray(step.inputs)) {
+      throw new Error(`Gradio workflow step ${index + 1} inputs must be a JSON array.`);
+    }
+    return {
+      apiName: normalizeApiName(String(step.apiName ?? "")),
+      inputs: step.inputs,
+      outputIndex: parseOutputIndex(step.outputIndex ?? 0, `Workflow step ${index + 1} outputIndex`),
+    } satisfies WorkflowStep;
+  });
+
+  if (!steps.some((step) => containsMessagePlaceholder(step.inputs))) {
+    throw new Error('Gradio workflow must contain the exact string "{{message}}" in at least one step.');
+  }
+
+  const finalStepIndex = parseOutputIndex(object.finalStep ?? steps.length - 1, "Gradio finalStep");
+  if (finalStepIndex >= steps.length) {
+    throw new Error("Gradio finalStep points to a step that does not exist.");
+  }
+
+  return { steps, finalStepIndex };
+}
+
+function getPath(value: unknown, path: number[]): unknown {
+  let cursor = value;
+  for (const index of path) {
+    if (!Array.isArray(cursor) || index < 0 || index >= cursor.length) return undefined;
+    cursor = cursor[index];
+  }
+  return cursor;
+}
+
+function replacePlaceholders(value: unknown, message: unknown, stepResults: unknown[]): unknown {
   if (value === "{{message}}") return message;
-  if (Array.isArray(value)) return value.map((item) => replaceMessage(item, message));
+
+  if (typeof value === "string") {
+    const match = value.match(/^\{\{step(\d+)((?:\.\d+)*)\}\}$/);
+    if (match) {
+      const stepIndex = Number(match[1]);
+      const path = match[2]
+        ? match[2]
+            .split(".")
+            .filter(Boolean)
+            .map((part) => Number(part))
+        : [];
+      const source = stepResults[stepIndex];
+      return path.length ? getPath(source, path) : source;
+    }
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => replacePlaceholders(item, message, stepResults));
+  }
+
   if (value && typeof value === "object") {
     return Object.fromEntries(
-      Object.entries(value as JsonObject).map(([key, item]) => [key, replaceMessage(item, message)])
+      Object.entries(value as JsonObject).map(([key, item]) => [
+        key,
+        replacePlaceholders(item, message, stepResults),
+      ])
     );
   }
+
   return value;
 }
 
@@ -127,6 +227,70 @@ function extractText(value: unknown): string {
   return "";
 }
 
+async function callGradioStep(
+  space: ValidatedHttpsTarget,
+  step: WorkflowStep,
+  data: unknown[],
+  sessionHash: string
+) {
+  const submitTarget = withPath(
+    space,
+    `/gradio_api/call/${encodeURIComponent(step.apiName)}`
+  );
+  const submitResponse = await pinnedHttpsRequest(submitTarget, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data, session_hash: sessionHash }),
+    timeoutMs: REQUEST_TIMEOUT_MS,
+    maxResponseBytes: MAX_RESPONSE_BYTES,
+  });
+
+  if (submitResponse.status >= 300 && submitResponse.status < 400) {
+    throw new Error(`Gradio workflow step ${step.apiName} returned a redirect.`);
+  }
+
+  let submitPayload: unknown = null;
+  try {
+    submitPayload = submitResponse.text ? JSON.parse(submitResponse.text) : null;
+  } catch {
+    // handled below
+  }
+
+  if (submitResponse.status < 200 || submitResponse.status >= 300) {
+    throw new Error(`Gradio submit failed with ${submitResponse.status} at ${step.apiName}.`);
+  }
+
+  const eventId =
+    submitPayload && typeof submitPayload === "object" && "event_id" in submitPayload
+      ? String((submitPayload as { event_id?: unknown }).event_id ?? "")
+      : "";
+  if (!eventId) {
+    throw new Error(`Gradio did not return an event ID for ${step.apiName}.`);
+  }
+
+  const pollTarget = withPath(
+    space,
+    `/gradio_api/call/${encodeURIComponent(step.apiName)}/${encodeURIComponent(eventId)}`
+  );
+  const pollResponse = await pinnedHttpsRequest(pollTarget, {
+    method: "GET",
+    headers: { Accept: "text/event-stream" },
+    timeoutMs: REQUEST_TIMEOUT_MS,
+    maxResponseBytes: MAX_RESPONSE_BYTES,
+  });
+
+  if (pollResponse.status < 200 || pollResponse.status >= 300) {
+    throw new Error(`Gradio result request failed with ${pollResponse.status} at ${step.apiName}.`);
+  }
+
+  const completed = parseSseComplete(pollResponse.text);
+  const outputs = Array.isArray(completed) ? completed : [completed];
+  return {
+    completed,
+    selected: outputs[step.outputIndex],
+  };
+}
+
 export async function POST(request: Request) {
   try {
     const adapterUrl = new URL(request.url);
@@ -138,17 +302,11 @@ export async function POST(request: Request) {
       }
     );
 
-    const apiName = normalizeApiName(adapterUrl.searchParams.get("apiName") ?? "chat");
-    const inputTemplate = parseInputTemplate(adapterUrl.searchParams.get("inputs") ?? "[]");
-    if (!containsMessagePlaceholder(inputTemplate)) {
-      throw new Error('Gradio input JSON must contain the exact string "{{message}}".');
-    }
-
-    const outputIndexRaw = adapterUrl.searchParams.get("outputIndex") ?? "0";
-    const outputIndex = Number(outputIndexRaw);
-    if (!Number.isInteger(outputIndex) || outputIndex < 0) {
-      throw new Error("Gradio output index must be a non-negative integer.");
-    }
+    const plan = parsePlan(
+      adapterUrl.searchParams.get("inputs") ?? "[]",
+      adapterUrl.searchParams.get("apiName") ?? "chat",
+      adapterUrl.searchParams.get("outputIndex") ?? "0"
+    );
 
     const incoming = await request.json().catch(() => ({}));
     const hasMessage =
@@ -156,68 +314,30 @@ export async function POST(request: Request) {
       typeof incoming === "object" &&
       Object.prototype.hasOwnProperty.call(incoming, "message");
     const message = hasMessage ? (incoming as { message?: unknown }).message : undefined;
-    const data = replaceMessage(inputTemplate, message);
 
-    const submitTarget = withPath(
-      space,
-      `/gradio_api/call/${encodeURIComponent(apiName)}`
-    );
-    const submitResponse = await pinnedHttpsRequest(submitTarget, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ data }),
-      timeoutMs: REQUEST_TIMEOUT_MS,
-      maxResponseBytes: MAX_RESPONSE_BYTES,
-    });
+    const sessionHash = randomUUID().replace(/-/g, "");
+    const completedResults: unknown[] = [];
+    const selectedResults: unknown[] = [];
 
-    if (submitResponse.status >= 300 && submitResponse.status < 400) {
-      throw new Error("Gradio submit endpoint returned a redirect.");
+    for (const step of plan.steps) {
+      const data = replacePlaceholders(step.inputs, message, selectedResults);
+      if (!Array.isArray(data)) {
+        throw new Error(`Gradio workflow step ${step.apiName} inputs did not resolve to an array.`);
+      }
+      const result = await callGradioStep(space, step, data, sessionHash);
+      completedResults.push(result.completed);
+      selectedResults.push(result.selected);
     }
 
-    let submitPayload: unknown = null;
-    try {
-      submitPayload = submitResponse.text ? JSON.parse(submitResponse.text) : null;
-    } catch {
-      // handled below
-    }
-
-    if (submitResponse.status < 200 || submitResponse.status >= 300) {
-      throw new Error(`Gradio submit failed with ${submitResponse.status}.`);
-    }
-
-    const eventId =
-      submitPayload && typeof submitPayload === "object" && "event_id" in submitPayload
-        ? String((submitPayload as { event_id?: unknown }).event_id ?? "")
-        : "";
-    if (!eventId) {
-      throw new Error("Gradio did not return an event ID.");
-    }
-
-    const pollTarget = withPath(
-      space,
-      `/gradio_api/call/${encodeURIComponent(apiName)}/${encodeURIComponent(eventId)}`
-    );
-    const pollResponse = await pinnedHttpsRequest(pollTarget, {
-      method: "GET",
-      headers: { Accept: "text/event-stream" },
-      timeoutMs: REQUEST_TIMEOUT_MS,
-      maxResponseBytes: MAX_RESPONSE_BYTES,
-    });
-
-    if (pollResponse.status < 200 || pollResponse.status >= 300) {
-      throw new Error(`Gradio result request failed with ${pollResponse.status}.`);
-    }
-
-    const completed = parseSseComplete(pollResponse.text);
-    const outputs = Array.isArray(completed) ? completed : [completed];
-    const selected = outputs[outputIndex];
-    const responseText = extractText(selected);
+    const finalStep = plan.steps[plan.finalStepIndex];
+    const finalValue = selectedResults[plan.finalStepIndex];
+    const responseText = extractText(finalValue);
 
     if (!responseText) {
       return NextResponse.json(
         {
           error: "Gradio completed but BENCHRX could not extract a text response.",
-          upstream: completed,
+          upstream: completedResults[plan.finalStepIndex],
         },
         { status: 502 }
       );
@@ -227,7 +347,8 @@ export async function POST(request: Request) {
       response: responseText,
       provider: "gradio",
       targetHost: space.hostname,
-      apiName,
+      apiName: finalStep.apiName,
+      workflowSteps: plan.steps.length,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Gradio adapter failed";
