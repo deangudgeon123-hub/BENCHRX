@@ -87,6 +87,45 @@ function buildCustomEndpoint(request: Request, body: Record<string, unknown>) {
   return endpoint.toString();
 }
 
+function validateGradioInputs(gradioInputs: string) {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(gradioInputs);
+  } catch {
+    throw new Error("Gradio input JSON must be valid JSON.");
+  }
+
+  if (Array.isArray(parsed)) return;
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Gradio input JSON must be an array or workflow object.");
+  }
+
+  const steps = (parsed as { steps?: unknown }).steps;
+  if (!Array.isArray(steps) || steps.length < 1 || steps.length > 4) {
+    throw new Error("Gradio workflow must contain 1 to 4 steps.");
+  }
+
+  for (const rawStep of steps) {
+    if (!rawStep || typeof rawStep !== "object" || Array.isArray(rawStep)) {
+      throw new Error("Each Gradio workflow step must be an object.");
+    }
+    const step = rawStep as { apiName?: unknown; inputs?: unknown; outputIndex?: unknown };
+    if (!String(step.apiName ?? "").trim()) {
+      throw new Error("Each Gradio workflow step needs an apiName.");
+    }
+    if (!Array.isArray(step.inputs)) {
+      throw new Error("Each Gradio workflow step inputs value must be an array.");
+    }
+    if (step.outputIndex !== undefined) {
+      const outputIndex = Number(step.outputIndex);
+      if (!Number.isInteger(outputIndex) || outputIndex < 0) {
+        throw new Error("Gradio workflow outputIndex values must be non-negative integers.");
+      }
+    }
+  }
+}
+
 function buildGradioEndpoint(request: Request, body: Record<string, unknown>) {
   const spaceUrl = String(body.spaceUrl ?? "").trim();
   const apiName = String(body.apiName ?? "chat").trim() || "chat";
@@ -108,12 +147,7 @@ function buildGradioEndpoint(request: Request, body: Record<string, unknown>) {
     throw new Error("Gradio Space endpoints must use HTTPS.");
   }
 
-  try {
-    const parsedInputs = JSON.parse(gradioInputs);
-    if (!Array.isArray(parsedInputs)) throw new Error();
-  } catch {
-    throw new Error("Gradio input JSON must be a valid JSON array.");
-  }
+  validateGradioInputs(gradioInputs);
 
   const parsedOutputIndex = Number(outputIndex);
   if (!Number.isInteger(parsedOutputIndex) || parsedOutputIndex < 0) {
