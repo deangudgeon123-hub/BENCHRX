@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { Client } from "@gradio/client";
 import { NextResponse } from "next/server";
 import {
   pinnedHttpsRequest,
@@ -23,11 +23,7 @@ type WorkflowStep = {
 type ParsedPlan = {
   steps: WorkflowStep[];
   finalStepIndex: number;
-};
-
-type GradioSession = {
-  sessionHash: string;
-  cookies: Map<string, string>;
+  isWorkflow: boolean;
 };
 
 function withPath(target: ValidatedHttpsTarget, path: string): ValidatedHttpsTarget {
@@ -83,6 +79,7 @@ function parsePlan(raw: string, apiNameRaw: string, outputIndexRaw: string): Par
         },
       ],
       finalStepIndex: 0,
+      isWorkflow: false,
     };
   }
 
@@ -120,7 +117,7 @@ function parsePlan(raw: string, apiNameRaw: string, outputIndexRaw: string): Par
     throw new Error("Gradio finalStep points to a step that does not exist.");
   }
 
-  return { steps, finalStepIndex };
+  return { steps, finalStepIndex, isWorkflow: true };
 }
 
 function getPath(value: unknown, path: number[]): unknown {
@@ -140,10 +137,7 @@ function replacePlaceholders(value: unknown, message: unknown, stepResults: unkn
     if (match) {
       const stepIndex = Number(match[1]);
       const path = match[2]
-        ? match[2]
-            .split(".")
-            .filter(Boolean)
-            .map((part) => Number(part))
+        ? match[2].split(".").filter(Boolean).map((part) => Number(part))
         : [];
       const source = stepResults[stepIndex];
       return path.length ? getPath(source, path) : source;
@@ -232,49 +226,22 @@ function extractText(value: unknown): string {
   return "";
 }
 
-function rememberCookies(session: GradioSession, setCookie: string | string[] | undefined) {
-  const headers = Array.isArray(setCookie) ? setCookie : setCookie ? [setCookie] : [];
-  for (const header of headers) {
-    const pair = header.split(";", 1)[0]?.trim();
-    if (!pair) continue;
-    const separator = pair.indexOf("=");
-    if (separator <= 0) continue;
-    session.cookies.set(pair.slice(0, separator), pair.slice(separator + 1));
-  }
-}
-
-function cookieHeader(session: GradioSession) {
-  if (!session.cookies.size) return undefined;
-  return Array.from(session.cookies.entries())
-    .map(([name, value]) => `${name}=${value}`)
-    .join("; ");
-}
-
-async function callGradioStep(
+async function callPinnedSingleStep(
   space: ValidatedHttpsTarget,
   step: WorkflowStep,
-  data: unknown[],
-  session: GradioSession
+  data: unknown[]
 ) {
-  const submitTarget = withPath(
-    space,
-    `/gradio_api/call/${encodeURIComponent(step.apiName)}`
-  );
-  const submitHeaders: Record<string, string> = { "Content-Type": "application/json" };
-  const existingCookie = cookieHeader(session);
-  if (existingCookie) submitHeaders.Cookie = existingCookie;
-
+  const submitTarget = withPath(space, `/gradio_api/call/${encodeURIComponent(step.apiName)}`);
   const submitResponse = await pinnedHttpsRequest(submitTarget, {
     method: "POST",
-    headers: submitHeaders,
-    body: JSON.stringify({ data, session_hash: session.sessionHash }),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data }),
     timeoutMs: REQUEST_TIMEOUT_MS,
     maxResponseBytes: MAX_RESPONSE_BYTES,
   });
-  rememberCookies(session, submitResponse.headers["set-cookie"]);
 
-  if (submitResponse.status >= 300 && submitResponse.status < 400) {
-    throw new Error(`Gradio workflow step ${step.apiName} returned a redirect.`);
+  if (submitResponse.status < 200 || submitResponse.status >= 300) {
+    throw new Error(`Gradio submit failed with ${submitResponse.status}.`);
   }
 
   let submitPayload: unknown = null;
@@ -284,44 +251,59 @@ async function callGradioStep(
     // handled below
   }
 
-  if (submitResponse.status < 200 || submitResponse.status >= 300) {
-    throw new Error(`Gradio submit failed with ${submitResponse.status} at ${step.apiName}.`);
-  }
-
   const eventId =
     submitPayload && typeof submitPayload === "object" && "event_id" in submitPayload
       ? String((submitPayload as { event_id?: unknown }).event_id ?? "")
       : "";
-  if (!eventId) {
-    throw new Error(`Gradio did not return an event ID for ${step.apiName}.`);
-  }
+  if (!eventId) throw new Error("Gradio did not return an event ID.");
 
   const pollTarget = withPath(
     space,
     `/gradio_api/call/${encodeURIComponent(step.apiName)}/${encodeURIComponent(eventId)}`
   );
-  const pollHeaders: Record<string, string> = { Accept: "text/event-stream" };
-  const pollCookie = cookieHeader(session);
-  if (pollCookie) pollHeaders.Cookie = pollCookie;
-
   const pollResponse = await pinnedHttpsRequest(pollTarget, {
     method: "GET",
-    headers: pollHeaders,
+    headers: { Accept: "text/event-stream" },
     timeoutMs: REQUEST_TIMEOUT_MS,
     maxResponseBytes: MAX_RESPONSE_BYTES,
   });
-  rememberCookies(session, pollResponse.headers["set-cookie"]);
 
   if (pollResponse.status < 200 || pollResponse.status >= 300) {
-    throw new Error(`Gradio result request failed with ${pollResponse.status} at ${step.apiName}.`);
+    throw new Error(`Gradio result request failed with ${pollResponse.status}.`);
   }
 
   const completed = parseSseComplete(pollResponse.text);
   const outputs = Array.isArray(completed) ? completed : [completed];
-  return {
-    completed,
-    selected: outputs[step.outputIndex],
-  };
+  return { completed, selected: outputs[step.outputIndex] };
+}
+
+async function callOfficialWorkflow(
+  space: ValidatedHttpsTarget,
+  plan: ParsedPlan,
+  message: unknown
+) {
+  if (!space.hostname.endsWith(".hf.space")) {
+    throw new Error("Stateful Gradio workflows are currently limited to Hugging Face Spaces.");
+  }
+
+  const app = await Client.connect(space.url.origin);
+  const completedResults: unknown[] = [];
+  const selectedResults: unknown[] = [];
+
+  for (const step of plan.steps) {
+    const data = replacePlaceholders(step.inputs, message, selectedResults);
+    if (!Array.isArray(data)) {
+      throw new Error(`Gradio workflow step ${step.apiName} inputs did not resolve to an array.`);
+    }
+
+    const result = await app.predict(`/${step.apiName}`, data);
+    const completed = result.data;
+    const outputs = Array.isArray(completed) ? completed : [completed];
+    completedResults.push(completed);
+    selectedResults.push(outputs[step.outputIndex]);
+  }
+
+  return { completedResults, selectedResults };
 }
 
 export async function POST(request: Request) {
@@ -348,21 +330,20 @@ export async function POST(request: Request) {
       Object.prototype.hasOwnProperty.call(incoming, "message");
     const message = hasMessage ? (incoming as { message?: unknown }).message : undefined;
 
-    const session: GradioSession = {
-      sessionHash: randomUUID().replace(/-/g, ""),
-      cookies: new Map(),
-    };
-    const completedResults: unknown[] = [];
-    const selectedResults: unknown[] = [];
+    let completedResults: unknown[];
+    let selectedResults: unknown[];
 
-    for (const step of plan.steps) {
-      const data = replacePlaceholders(step.inputs, message, selectedResults);
+    if (plan.isWorkflow) {
+      ({ completedResults, selectedResults } = await callOfficialWorkflow(space, plan, message));
+    } else {
+      const step = plan.steps[0];
+      const data = replacePlaceholders(step.inputs, message, []);
       if (!Array.isArray(data)) {
-        throw new Error(`Gradio workflow step ${step.apiName} inputs did not resolve to an array.`);
+        throw new Error(`Gradio step ${step.apiName} inputs did not resolve to an array.`);
       }
-      const result = await callGradioStep(space, step, data, session);
-      completedResults.push(result.completed);
-      selectedResults.push(result.selected);
+      const result = await callPinnedSingleStep(space, step, data);
+      completedResults = [result.completed];
+      selectedResults = [result.selected];
     }
 
     const finalStep = plan.steps[plan.finalStepIndex];
@@ -385,6 +366,7 @@ export async function POST(request: Request) {
       targetHost: space.hostname,
       apiName: finalStep.apiName,
       workflowSteps: plan.steps.length,
+      clientMode: plan.isWorkflow ? "official" : "pinned",
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Gradio adapter failed";
