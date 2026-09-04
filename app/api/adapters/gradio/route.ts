@@ -25,6 +25,11 @@ type ParsedPlan = {
   finalStepIndex: number;
 };
 
+type GradioSession = {
+  sessionHash: string;
+  cookies: Map<string, string>;
+};
+
 function withPath(target: ValidatedHttpsTarget, path: string): ValidatedHttpsTarget {
   return {
     ...target,
@@ -227,23 +232,46 @@ function extractText(value: unknown): string {
   return "";
 }
 
+function rememberCookies(session: GradioSession, setCookie: string | string[] | undefined) {
+  const headers = Array.isArray(setCookie) ? setCookie : setCookie ? [setCookie] : [];
+  for (const header of headers) {
+    const pair = header.split(";", 1)[0]?.trim();
+    if (!pair) continue;
+    const separator = pair.indexOf("=");
+    if (separator <= 0) continue;
+    session.cookies.set(pair.slice(0, separator), pair.slice(separator + 1));
+  }
+}
+
+function cookieHeader(session: GradioSession) {
+  if (!session.cookies.size) return undefined;
+  return Array.from(session.cookies.entries())
+    .map(([name, value]) => `${name}=${value}`)
+    .join("; ");
+}
+
 async function callGradioStep(
   space: ValidatedHttpsTarget,
   step: WorkflowStep,
   data: unknown[],
-  sessionHash: string
+  session: GradioSession
 ) {
   const submitTarget = withPath(
     space,
     `/gradio_api/call/${encodeURIComponent(step.apiName)}`
   );
+  const submitHeaders: Record<string, string> = { "Content-Type": "application/json" };
+  const existingCookie = cookieHeader(session);
+  if (existingCookie) submitHeaders.Cookie = existingCookie;
+
   const submitResponse = await pinnedHttpsRequest(submitTarget, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ data, session_hash: sessionHash }),
+    headers: submitHeaders,
+    body: JSON.stringify({ data, session_hash: session.sessionHash }),
     timeoutMs: REQUEST_TIMEOUT_MS,
     maxResponseBytes: MAX_RESPONSE_BYTES,
   });
+  rememberCookies(session, submitResponse.headers["set-cookie"]);
 
   if (submitResponse.status >= 300 && submitResponse.status < 400) {
     throw new Error(`Gradio workflow step ${step.apiName} returned a redirect.`);
@@ -272,12 +300,17 @@ async function callGradioStep(
     space,
     `/gradio_api/call/${encodeURIComponent(step.apiName)}/${encodeURIComponent(eventId)}`
   );
+  const pollHeaders: Record<string, string> = { Accept: "text/event-stream" };
+  const pollCookie = cookieHeader(session);
+  if (pollCookie) pollHeaders.Cookie = pollCookie;
+
   const pollResponse = await pinnedHttpsRequest(pollTarget, {
     method: "GET",
-    headers: { Accept: "text/event-stream" },
+    headers: pollHeaders,
     timeoutMs: REQUEST_TIMEOUT_MS,
     maxResponseBytes: MAX_RESPONSE_BYTES,
   });
+  rememberCookies(session, pollResponse.headers["set-cookie"]);
 
   if (pollResponse.status < 200 || pollResponse.status >= 300) {
     throw new Error(`Gradio result request failed with ${pollResponse.status} at ${step.apiName}.`);
@@ -315,7 +348,10 @@ export async function POST(request: Request) {
       Object.prototype.hasOwnProperty.call(incoming, "message");
     const message = hasMessage ? (incoming as { message?: unknown }).message : undefined;
 
-    const sessionHash = randomUUID().replace(/-/g, "");
+    const session: GradioSession = {
+      sessionHash: randomUUID().replace(/-/g, ""),
+      cookies: new Map(),
+    };
     const completedResults: unknown[] = [];
     const selectedResults: unknown[] = [];
 
@@ -324,7 +360,7 @@ export async function POST(request: Request) {
       if (!Array.isArray(data)) {
         throw new Error(`Gradio workflow step ${step.apiName} inputs did not resolve to an array.`);
       }
-      const result = await callGradioStep(space, step, data, sessionHash);
+      const result = await callGradioStep(space, step, data, session);
       completedResults.push(result.completed);
       selectedResults.push(result.selected);
     }
