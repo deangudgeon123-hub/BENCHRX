@@ -27,22 +27,24 @@ def ensure_test_cases(supabase: Client) -> dict[str, str]:
             .limit(1)
             .execute()
         )
+
+        metadata = {
+            "category": test["category"],
+            "title": test["title"],
+            "description": test["description"],
+            "weight": test["weight"],
+            "active": True,
+        }
+
         if existing.data:
-            ids[test["key"]] = existing.data[0]["id"]
+            test_case_id = existing.data[0]["id"]
+            supabase.table("test_cases").update(metadata).eq("id", test_case_id).execute()
+            ids[test["key"]] = test_case_id
             continue
 
         created = (
             supabase.table("test_cases")
-            .insert(
-                {
-                    "key": test["key"],
-                    "category": test["category"],
-                    "title": test["title"],
-                    "description": test["description"],
-                    "weight": test["weight"],
-                    "active": True,
-                }
-            )
+            .insert({"key": test["key"], **metadata})
             .execute()
         )
         ids[test["key"]] = created.data[0]["id"]
