@@ -5,17 +5,20 @@ from typing import Any
 from fastapi import BackgroundTasks, FastAPI
 
 from benchmarks.runner import execute_run
+from benchmarks.tests import BENCHMARK_SUITE_VERSION, TESTS
 from config import OPENAI_JUDGE_MODEL
 from models.payloads import TriggerPayload
 
-app = FastAPI(title="BENCHRX Worker", version="0.5.0")
+app = FastAPI(title="BENCHRX Worker", version="0.6.0")
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
+def health() -> dict[str, Any]:
     return {
         "status": "ok",
-        "version": "0.5.0",
+        "version": "0.6.0",
+        "benchmark_suite_version": BENCHMARK_SUITE_VERSION,
+        "benchmark_checks": len(TESTS),
         "ai_judge": "shadow",
         "ai_model": OPENAI_JUDGE_MODEL,
     }
