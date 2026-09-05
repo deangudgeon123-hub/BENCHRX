@@ -8,7 +8,7 @@ from fastapi import HTTPException
 
 from benchmarks.evaluator import run_test
 from benchmarks.scoring import category_score
-from benchmarks.tests import TESTS
+from benchmarks.tests import BENCHMARK_SUITE_VERSION, TESTS
 from config import AI_JUDGE_TEST_KEYS, OPENAI_JUDGE_MODEL
 from judges.openai_judge import judge_with_openai
 from services.supabase import ensure_test_cases, get_supabase
@@ -49,7 +49,7 @@ async def execute_run(run_id: str) -> dict[str, Any]:
     try:
         agent_result = (
             supabase.table("agents")
-            .select("id,name,description,endpoint_url")
+            .select("id,name,description,category,endpoint_url")
             .eq("id", agent_id)
             .single()
             .execute()
@@ -70,10 +70,19 @@ async def execute_run(run_id: str) -> dict[str, Any]:
 
                 ai_judge: dict[str, Any] | None = None
                 if test["key"] in AI_JUDGE_TEST_KEYS:
-                    ai_judge = await judge_with_openai(test, outcome, agent.get("description"))
+                    ai_judge = await judge_with_openai(
+                        test,
+                        outcome,
+                        agent.get("description"),
+                        agent.get("category"),
+                    )
 
                 raw_response = outcome["raw_response"]
                 if isinstance(raw_response, dict):
+                    raw_response = {
+                        **raw_response,
+                        "benchrx_suite_version": BENCHMARK_SUITE_VERSION,
+                    }
                     if ai_judge is not None:
                         raw_response = {**raw_response, "ai_judge": ai_judge}
                     if connector_diagnostic:
@@ -149,6 +158,8 @@ async def execute_run(run_id: str) -> dict[str, Any]:
             "run_id": run_id,
             "agent_id": agent_id,
             "production_score": production_score,
+            "benchmark_suite_version": BENCHMARK_SUITE_VERSION,
+            "scored_checks": len(scored_results),
             "ai_judge_model": OPENAI_JUDGE_MODEL,
             "ai_judge_mode": "shadow",
         }
