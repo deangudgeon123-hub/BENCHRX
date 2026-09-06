@@ -67,6 +67,12 @@ type RunRow = {
   created_at: string;
 };
 
+const MINIMUM_COVERAGE: Record<string, number> = {
+  task_success: 9,
+  reliability: 5,
+  safety: 6,
+};
+
 function scoreLabel(score: number) {
   if (score >= 90) return "Production ready";
   if (score >= 75) return "Strong";
@@ -96,17 +102,66 @@ function formatDate(value: string | null) {
   }).format(new Date(value));
 }
 
-function ScoreBar({ label, value }: { label: string; value: number | null }) {
-  const score = Math.max(0, Math.min(100, Number(value ?? 0)));
+function getTestCase(result: ResultRow) {
+  return Array.isArray(result.test_cases) ? result.test_cases[0] : result.test_cases;
+}
+
+function outcomeType(result: ResultRow) {
+  return typeof result.raw_response?.outcome_type === "string" ? result.raw_response.outcome_type : null;
+}
+
+function isConnectorDiagnostic(result: ResultRow) {
+  return outcomeType(result) === "connector_diagnostic" || result.raw_response?.benchrx_diagnostic === true;
+}
+
+function isUnobserved(result: ResultRow) {
+  if (outcomeType(result) === "unobserved_upstream_error") return true;
+  return result.raw_response?.score_included === false && !isConnectorDiagnostic(result);
+}
+
+function isObservedBehaviour(result: ResultRow) {
+  return !isConnectorDiagnostic(result) && !isUnobserved(result);
+}
+
+function categoryCoverage(results: ResultRow[], category: string) {
+  const selected = results.filter((result) => getTestCase(result)?.category === category && !isConnectorDiagnostic(result));
+  return {
+    observed: selected.filter(isObservedBehaviour).length,
+    total: selected.length,
+  };
+}
+
+function ScoreBar({
+  label,
+  value,
+  observed,
+  total,
+  minimum,
+}: {
+  label: string;
+  value: number | null;
+  observed: number;
+  total: number;
+  minimum: number;
+}) {
+  const sufficient = observed >= minimum;
+  const score = value === null ? null : Math.max(0, Math.min(100, Number(value)));
 
   return (
     <div>
-      <div className="mb-2 flex items-center justify-between gap-4 text-sm">
-        <span className="font-semibold text-white">{label}</span>
-        <span className="font-black tabular-nums text-white">{score.toFixed(0)}</span>
+      <div className="mb-2 flex items-start justify-between gap-4 text-sm">
+        <div>
+          <span className="font-semibold text-white">{label}</span>
+          <p className="mt-1 text-xs text-[var(--muted)]">{observed}/{total} observed · minimum {minimum}</p>
+        </div>
+        {sufficient && score !== null ? (
+          <span className="font-black tabular-nums text-white">{score.toFixed(0)}</span>
+        ) : (
+          <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs font-black text-amber-200">Insufficient evidence</span>
+        )}
       </div>
       <div className="h-2 overflow-hidden rounded-full bg-white/8">
-        <div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${score}%` }} />
+        <div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${sufficient && score !== null ? score : 0}%` }} />
       </div>
     </div>
   );
@@ -155,18 +210,31 @@ export default async function AgentScorecardPage({ params }: PageProps) {
     results = (data ?? []) as ResultRow[];
   }
 
-  const productionScore = Number(run?.production_score ?? 0);
-  const previousScore = previousRun ? Number(previousRun.production_score ?? 0) : null;
-  const scoreDelta = previousScore === null ? null : productionScore - previousScore;
-  const scoredResults = results.filter((result) => result.raw_response?.score_included !== false);
-  const diagnosticResults = results.filter((result) => result.raw_response?.score_included === false);
-  const passedCount = scoredResults.filter((result) => result.passed).length;
-  const failedCount = scoredResults.length - passedCount;
+  const observedResults = results.filter(isObservedBehaviour);
+  const unobservedResults = results.filter(isUnobserved);
+  const diagnosticResults = results.filter(isConnectorDiagnostic);
+  const passedCount = observedResults.filter((result) => result.passed).length;
+  const failedCount = observedResults.length - passedCount;
   const diagnosticPassedCount = diagnosticResults.filter((result) => result.passed).length;
+  const taskCoverage = categoryCoverage(results, "task_success");
+  const reliabilityCoverage = categoryCoverage(results, "reliability");
+  const safetyCoverage = categoryCoverage(results, "safety");
+  const coverageSufficient =
+    taskCoverage.observed >= MINIMUM_COVERAGE.task_success &&
+    reliabilityCoverage.observed >= MINIMUM_COVERAGE.reliability &&
+    safetyCoverage.observed >= MINIMUM_COVERAGE.safety;
+  const productionScore = run?.production_score === null || !coverageSufficient ? null : Number(run.production_score);
+  const previousScore = previousRun?.production_score === null || previousRun?.production_score === undefined ? null : Number(previousRun.production_score);
+  const scoreDelta = productionScore === null || previousScore === null ? null : productionScore - previousScore;
+  const insufficientCategories = [
+    taskCoverage.observed < MINIMUM_COVERAGE.task_success ? `Task success ${taskCoverage.observed}/${taskCoverage.total} observed` : null,
+    reliabilityCoverage.observed < MINIMUM_COVERAGE.reliability ? `Reliability ${reliabilityCoverage.observed}/${reliabilityCoverage.total} observed` : null,
+    safetyCoverage.observed < MINIMUM_COVERAGE.safety ? `Safety ${safetyCoverage.observed}/${safetyCoverage.total} observed` : null,
+  ].filter(Boolean) as string[];
   const aiResults = results
     .map((result) => ({
       result,
-      testCase: Array.isArray(result.test_cases) ? result.test_cases[0] : result.test_cases,
+      testCase: getTestCase(result),
       judge: result.raw_response?.ai_judge,
     }))
     .filter((item) => item.judge);
@@ -205,40 +273,56 @@ export default async function AgentScorecardPage({ params }: PageProps) {
           <BenchmarkPending />
         ) : (
           <>
-            <div className="mt-10 flex flex-col gap-4 rounded-3xl border border-emerald-500/20 bg-emerald-500/10 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+            <div className={`mt-10 flex flex-col gap-4 rounded-3xl p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6 ${productionScore === null ? "border border-amber-500/20 bg-amber-500/10" : "border border-emerald-500/20 bg-emerald-500/10"}`}>
               <div className="flex items-start gap-3">
-                <CheckCircle2 className="mt-0.5 shrink-0 text-emerald-300" size={21} />
+                {productionScore === null ? <CircleGauge className="mt-0.5 shrink-0 text-amber-300" size={21} /> : <CheckCircle2 className="mt-0.5 shrink-0 text-emerald-300" size={21} />}
                 <div>
-                  <p className="font-black text-emerald-50">Benchmark ready</p>
-                  <p className="mt-1 text-sm leading-6 text-emerald-100/70">Latest blind resilience run completed successfully.</p>
+                  <p className={`font-black ${productionScore === null ? "text-amber-50" : "text-emerald-50"}`}>{productionScore === null ? "Benchmark complete — score withheld" : "Benchmark ready"}</p>
+                  <p className={`mt-1 text-sm leading-6 ${productionScore === null ? "text-amber-100/70" : "text-emerald-100/70"}`}>{productionScore === null ? `Insufficient behavioural coverage: ${insufficientCategories.join("; ")}.` : "Latest blind resilience run completed with sufficient behavioural coverage."}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-emerald-100/80"><ShieldCheck size={14} /> Verified result</div>
+              <div className={`flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] ${productionScore === null ? "text-amber-100/80" : "text-emerald-100/80"}`}><ShieldCheck size={14} /> {productionScore === null ? "Insufficient evidence" : "Verified result"}</div>
             </div>
 
             <div className="mt-6 grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
               <div className="relative overflow-hidden rounded-3xl border border-[var(--accent)]/20 bg-[var(--surface)] p-8 sm:p-10">
                 <div className="absolute right-0 top-0 h-44 w-44 rounded-full bg-[var(--accent)]/8 blur-3xl" />
                 <div className="relative">
-                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-[var(--muted)]"><CircleGauge size={16} /> Latest production score</div>
-                  <div className="mt-7 flex items-end gap-3">
-                    <span className="text-8xl font-black leading-none tracking-[-0.07em] text-white sm:text-9xl">{productionScore.toFixed(0)}</span>
-                    <span className="mb-3 text-xl font-bold text-[var(--muted)]">/100</span>
+                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-[var(--muted)]"><CircleGauge size={16} /> Production-readiness result</div>
+                  {productionScore === null ? (
+                    <>
+                      <p className="mt-7 text-4xl font-black tracking-[-0.045em] text-white sm:text-5xl">Score withheld</p>
+                      <span className="mt-5 inline-flex rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-sm font-black text-amber-200">Insufficient evidence</span>
+                      <p className="mt-4 max-w-md text-sm leading-6 text-[var(--muted)]">BENCHRX did not observe enough behaviour in every critical category to issue a defensible production-readiness score.</p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="mt-7 flex items-end gap-3">
+                        <span className="text-8xl font-black leading-none tracking-[-0.07em] text-white sm:text-9xl">{productionScore.toFixed(0)}</span>
+                        <span className="mb-3 text-xl font-bold text-[var(--muted)]">/100</span>
+                      </div>
+                      <div className="mt-5 flex flex-wrap items-center gap-3">
+                        <span className="rounded-full border border-[var(--accent)]/20 bg-[var(--accent)]/10 px-3 py-1.5 text-sm font-black text-[var(--accent)]">{scoreLabel(productionScore)}</span>
+                        {scoreDelta !== null ? (
+                          <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-sm font-black ${scoreDelta > 0 ? "bg-emerald-500/10 text-emerald-200" : scoreDelta < 0 ? "bg-red-500/10 text-red-200" : "bg-white/5 text-[var(--muted)]"}`}>
+                            {scoreDelta > 0 ? <TrendingUp size={15} /> : scoreDelta < 0 ? <TrendingDown size={15} /> : null}
+                            {scoreDelta > 0 ? "+" : ""}{scoreDelta.toFixed(0)} vs previous
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="mt-4 max-w-md text-sm leading-6 text-[var(--muted)]">{scoreSummary(productionScore)}</p>
+                    </>
+                  )}
+                  <div className="mt-8 grid grid-cols-2 gap-3 border-t border-white/8 pt-6 sm:grid-cols-4">
+                    <div><p className="text-xs text-[var(--muted)]">Attempted</p><p className="mt-1 text-xl font-black text-white">{results.length}</p></div>
+                    <div><p className="text-xs text-[var(--muted)]">Observed</p><p className="mt-1 text-xl font-black text-white">{observedResults.length}</p></div>
+                    <div><p className="text-xs text-[var(--muted)]">Unobserved</p><p className={`mt-1 text-xl font-black ${unobservedResults.length > 0 ? "text-amber-300" : "text-white"}`}>{unobservedResults.length}</p></div>
+                    <div><p className="text-xs text-[var(--muted)]">Diagnostics</p><p className="mt-1 text-xl font-black text-white">{diagnosticResults.length}</p></div>
                   </div>
-                  <div className="mt-5 flex flex-wrap items-center gap-3">
-                    <span className="rounded-full border border-[var(--accent)]/20 bg-[var(--accent)]/10 px-3 py-1.5 text-sm font-black text-[var(--accent)]">{scoreLabel(productionScore)}</span>
-                    {scoreDelta !== null ? (
-                      <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-sm font-black ${scoreDelta > 0 ? "bg-emerald-500/10 text-emerald-200" : scoreDelta < 0 ? "bg-red-500/10 text-red-200" : "bg-white/5 text-[var(--muted)]"}`}>
-                        {scoreDelta > 0 ? <TrendingUp size={15} /> : scoreDelta < 0 ? <TrendingDown size={15} /> : null}
-                        {scoreDelta > 0 ? "+" : ""}{scoreDelta.toFixed(0)} vs previous
-                      </span>
-                    ) : null}
-                  </div>
-                  <p className="mt-4 max-w-md text-sm leading-6 text-[var(--muted)]">{scoreSummary(productionScore)}</p>
-                  <div className="mt-8 grid grid-cols-2 gap-3 border-t border-white/8 pt-6 sm:grid-cols-3">
-                    <div><p className="text-xs text-[var(--muted)]">Passed</p><p className="mt-1 text-xl font-black text-white">{passedCount}</p></div>
-                    <div><p className="text-xs text-[var(--muted)]">Failed</p><p className={`mt-1 text-xl font-black ${failedCount > 0 ? "text-red-300" : "text-white"}`}>{failedCount}</p></div>
-                    <div><p className="text-xs text-[var(--muted)]">Avg latency</p><p className="mt-1 text-xl font-black tabular-nums text-white">{Number(run.avg_latency_ms ?? 0).toLocaleString()} ms</p></div>
+                  <div className="mt-5 flex flex-wrap gap-4 text-xs text-[var(--muted)]">
+                    <span>{passedCount} observed passes</span>
+                    <span>{failedCount} observed failures</span>
+                    <span>{Number(run.avg_latency_ms ?? 0).toLocaleString()} ms avg observed latency</span>
                   </div>
                 </div>
               </div>
@@ -249,9 +333,9 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                   <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-200">Active</span>
                 </div>
                 <div className="mt-7 space-y-6">
-                  <ScoreBar label="Task success" value={run.task_success_score} />
-                  <ScoreBar label="Reliability" value={run.reliability_score} />
-                  <ScoreBar label="Safety" value={run.safety_score} />
+                  <ScoreBar label="Task success" value={run.task_success_score} observed={taskCoverage.observed} total={taskCoverage.total} minimum={MINIMUM_COVERAGE.task_success} />
+                  <ScoreBar label="Reliability" value={run.reliability_score} observed={reliabilityCoverage.observed} total={reliabilityCoverage.total} minimum={MINIMUM_COVERAGE.reliability} />
+                  <ScoreBar label="Safety" value={run.safety_score} observed={safetyCoverage.observed} total={safetyCoverage.total} minimum={MINIMUM_COVERAGE.safety} />
                   {diagnosticResults.length > 0 ? (
                     <div className="rounded-2xl border border-white/8 bg-white/[0.025] p-4">
                       <div className="flex items-center justify-between gap-4">
@@ -263,9 +347,15 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                       </div>
                     </div>
                   ) : (
-                    <ScoreBar label="Error handling" value={run.error_handling_score} />
+                    <div>
+                      <div className="mb-2 flex items-center justify-between gap-4 text-sm"><span className="font-semibold text-white">Error handling</span><span className="font-black tabular-nums text-white">{Number(run.error_handling_score ?? 0).toFixed(0)}</span></div>
+                      <div className="h-2 overflow-hidden rounded-full bg-white/8"><div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${Math.max(0, Math.min(100, Number(run.error_handling_score ?? 0)))}%` }} /></div>
+                    </div>
                   )}
-                  <ScoreBar label="Efficiency" value={run.efficiency_score} />
+                  <div>
+                    <div className="mb-2 flex items-center justify-between gap-4 text-sm"><span className="font-semibold text-white">Efficiency</span><span className="font-black tabular-nums text-white">{Number(run.efficiency_score ?? 0).toFixed(0)}</span></div>
+                    <div className="h-2 overflow-hidden rounded-full bg-white/8"><div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${Math.max(0, Math.min(100, Number(run.efficiency_score ?? 0)))}%` }} /></div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -331,22 +421,25 @@ export default async function AgentScorecardPage({ params }: PageProps) {
 
             <div className="mt-10">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                <div><p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--accent)]">Evidence</p><h2 className="mt-3 text-3xl font-black tracking-[-0.035em]">Blind resilience evidence</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--muted)]">Observed behaviour from the latest completed run. Connector diagnostics are retained for transparency but are not scored as agent behaviour.</p></div>
+                <div><p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--accent)]">Evidence</p><h2 className="mt-3 text-3xl font-black tracking-[-0.035em]">Blind resilience evidence</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--muted)]">Observed behaviour, unobserved upstream outcomes and connector diagnostics from the latest completed run are shown separately.</p></div>
                 <p className="text-sm text-[var(--muted)]">Run {run.id.slice(0, 8)}</p>
               </div>
               <div className="mt-6 overflow-hidden rounded-3xl border border-white/8 bg-[var(--surface)]">
                 {results.map((result, index) => {
-                  const testCase = Array.isArray(result.test_cases) ? result.test_cases[0] : result.test_cases;
-                  const diagnostic = result.raw_response?.score_included === false;
+                  const testCase = getTestCase(result);
+                  const diagnostic = isConnectorDiagnostic(result);
+                  const unobserved = isUnobserved(result);
                   return (
                     <div key={result.id} className={`flex flex-col gap-5 p-6 sm:flex-row sm:items-center sm:justify-between sm:p-7 ${index !== results.length - 1 ? "border-b border-white/8" : ""}`}>
                       <div className="flex min-w-0 items-start gap-4">
-                        <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border ${diagnostic ? "border-white/10 bg-white/5 text-[var(--muted)]" : result.passed ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300" : "border-red-500/20 bg-red-500/10 text-red-300"}`}>{diagnostic ? <CircleGauge size={18} /> : result.passed ? <CheckCircle2 size={18} /> : <XCircle size={18} />}</div>
+                        <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border ${diagnostic ? "border-white/10 bg-white/5 text-[var(--muted)]" : unobserved ? "border-amber-500/20 bg-amber-500/10 text-amber-300" : result.passed ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300" : "border-red-500/20 bg-red-500/10 text-red-300"}`}>{diagnostic || unobserved ? <CircleGauge size={18} /> : result.passed ? <CheckCircle2 size={18} /> : <XCircle size={18} />}</div>
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
                             <p className="font-black text-white">{testCase?.title ?? "BENCHRX test"}</p>
                             {diagnostic ? (
                               <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-[var(--muted)]">Connector diagnostic</span>
+                            ) : unobserved ? (
+                              <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-amber-200">Unobserved</span>
                             ) : (
                               <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${result.passed ? "bg-emerald-500/10 text-emerald-200" : "bg-red-500/10 text-red-200"}`}>{result.passed ? "Passed" : "Failed"}</span>
                             )}
@@ -356,11 +449,12 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                           </div>
                           <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{result.judge_reason ?? testCase?.description ?? "Benchmark check completed."}</p>
                           {diagnostic ? <p className="mt-1 text-xs font-semibold text-[var(--muted)]">This result describes the BENCHRX-managed connector contract and is not included in the agent production score.</p> : null}
+                          {unobserved ? <p className="mt-1 text-xs font-semibold text-amber-200/80">BENCHRX did not receive observable agent behaviour, so this result is not treated as a behavioural failure.</p> : null}
                         </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-6 pl-13 text-sm sm:pl-0">
                         <div className="text-right"><p className="text-xs text-[var(--muted)]">Latency</p><p className="mt-1 font-bold tabular-nums text-white">{Number(result.latency_ms ?? 0).toLocaleString()} ms</p></div>
-                        <div className="min-w-16 text-right"><p className="text-xs text-[var(--muted)]">{diagnostic ? "Scoring" : "Score"}</p><p className="mt-1 font-black tabular-nums text-white">{diagnostic ? "Not scored" : Number(result.score ?? 0).toFixed(0)}</p></div>
+                        <div className="min-w-16 text-right"><p className="text-xs text-[var(--muted)]">{diagnostic || unobserved ? "Scoring" : "Score"}</p><p className="mt-1 font-black tabular-nums text-white">{diagnostic || unobserved ? "Not scored" : Number(result.score ?? 0).toFixed(0)}</p></div>
                       </div>
                     </div>
                   );
@@ -376,9 +470,10 @@ export default async function AgentScorecardPage({ params }: PageProps) {
 
               <div className="mt-6 overflow-hidden rounded-3xl border border-white/8 bg-[var(--surface)]">
                 {history.map((item, index) => {
-                  const score = Number(item.production_score ?? 0);
+                  const score = item.production_score === null ? null : Number(item.production_score);
                   const next = history[index + 1];
-                  const delta = next ? score - Number(next.production_score ?? 0) : null;
+                  const nextScore = next?.production_score === null || next?.production_score === undefined ? null : Number(next.production_score);
+                  const delta = score === null || nextScore === null ? null : score - nextScore;
                   return (
                     <div key={item.id} className={`flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6 ${index !== history.length - 1 ? "border-b border-white/8" : ""}`}>
                       <div className="flex items-center gap-3">
@@ -387,7 +482,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                       </div>
                       <div className="flex items-center gap-5 pl-12 sm:pl-0">
                         {delta !== null ? <span className={`text-sm font-black ${delta > 0 ? "text-emerald-300" : delta < 0 ? "text-red-300" : "text-[var(--muted)]"}`}>{delta > 0 ? "+" : ""}{delta.toFixed(0)}</span> : null}
-                        <div className="text-right"><p className="text-xs text-[var(--muted)]">Score</p><p className="mt-1 text-2xl font-black tabular-nums text-white">{score.toFixed(0)}</p></div>
+                        <div className="text-right"><p className="text-xs text-[var(--muted)]">Score</p><p className={`mt-1 font-black tabular-nums ${score === null ? "text-sm text-amber-200" : "text-2xl text-white"}`}>{score === null ? "Withheld" : score.toFixed(0)}</p></div>
                       </div>
                     </div>
                   );
@@ -396,7 +491,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
             </div>
 
             <div className="mt-8 flex flex-col gap-4 rounded-3xl border border-white/8 bg-white/[0.025] p-6 text-sm leading-6 text-[var(--muted)] sm:flex-row sm:items-center sm:justify-between">
-              <p className="max-w-3xl">This score currently reflects BENCHRX blind resilience checks only. BENCHRX-managed connector diagnostics and AI shadow judgments are displayed for transparency but are not included in the production score.</p>
+              <p className="max-w-3xl">This result reflects BENCHRX blind resilience checks only. Unobserved upstream outcomes, BENCHRX-managed connector diagnostics and AI shadow judgments are displayed for transparency but are not scored as observed agent behaviour.</p>
               <Link href="/benchmark" className="shrink-0 rounded-full border border-white/12 px-5 py-2.5 font-bold text-white transition hover:border-[var(--accent)]/60">Benchmark another agent</Link>
             </div>
           </>
