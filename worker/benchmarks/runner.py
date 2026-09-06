@@ -22,6 +22,52 @@ def uses_benchrx_adapter(endpoint_url: str) -> bool:
     return "/api/adapters/" in endpoint_url
 
 
+def _collect_http_statuses(value: Any) -> list[int]:
+    statuses: list[int] = []
+    if isinstance(value, dict):
+        status = value.get("http_status")
+        if isinstance(status, int):
+            statuses.append(status)
+        for child in value.values():
+            statuses.extend(_collect_http_statuses(child))
+    elif isinstance(value, list):
+        for child in value:
+            statuses.extend(_collect_http_statuses(child))
+    return statuses
+
+
+def _has_transport_error(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    for key in ("error", "first_error", "second_error"):
+        if value.get(key):
+            return True
+    return any(_has_transport_error(child) for child in value.values())
+
+
+def _outcome_observed(test: dict[str, Any], outcome: dict[str, Any]) -> bool:
+    if test["category"] == "error_handling":
+        return True
+
+    raw_response = outcome.get("raw_response")
+    if _has_transport_error(raw_response):
+        return False
+
+    statuses = _collect_http_statuses(raw_response)
+    if statuses and any(not (200 <= status < 300) for status in statuses):
+        return False
+
+    return True
+
+
+def _weighted_available_score(values: list[tuple[float | None, float]]) -> float:
+    available = [(score, weight) for score, weight in values if score is not None]
+    if not available:
+        return 0.0
+    total_weight = sum(weight for _, weight in available)
+    return round(sum(float(score) * weight for score, weight in available) / total_weight, 2)
+
+
 async def execute_run(run_id: str) -> dict[str, Any]:
     supabase = get_supabase()
 
@@ -67,9 +113,10 @@ async def execute_run(run_id: str) -> dict[str, Any]:
             for test in TESTS:
                 outcome = await run_test(client, endpoint_url, test)
                 connector_diagnostic = adapter_mediated and test["category"] == "error_handling"
+                observed = _outcome_observed(test, outcome)
 
                 ai_judge: dict[str, Any] | None = None
-                if test["key"] in AI_JUDGE_TEST_KEYS:
+                if observed and test["key"] in AI_JUDGE_TEST_KEYS:
                     ai_judge = await judge_with_openai(
                         test,
                         outcome,
@@ -79,9 +126,20 @@ async def execute_run(run_id: str) -> dict[str, Any]:
 
                 raw_response = outcome["raw_response"]
                 if isinstance(raw_response, dict):
+                    if connector_diagnostic:
+                        outcome_type = "connector_diagnostic"
+                    elif not observed:
+                        outcome_type = "unobserved_upstream_error"
+                    elif outcome["passed"]:
+                        outcome_type = "agent_pass"
+                    else:
+                        outcome_type = "agent_fail"
+
                     raw_response = {
                         **raw_response,
                         "benchrx_suite_version": BENCHMARK_SUITE_VERSION,
+                        "outcome_type": outcome_type,
+                        "observed": observed,
                     }
                     if ai_judge is not None:
                         raw_response = {**raw_response, "ai_judge": ai_judge}
@@ -91,6 +149,11 @@ async def execute_run(run_id: str) -> dict[str, Any]:
                             "benchrx_diagnostic": True,
                             "score_included": False,
                         }
+                    elif not observed:
+                        raw_response = {
+                            **raw_response,
+                            "score_included": False,
+                        }
 
                 item = {
                     "key": test["key"],
@@ -98,6 +161,7 @@ async def execute_run(run_id: str) -> dict[str, Any]:
                     "title": test["title"],
                     "weight": test["weight"],
                     "connector_diagnostic": connector_diagnostic,
+                    "observed": observed,
                     **outcome,
                 }
                 results.append(item)
@@ -119,23 +183,33 @@ async def execute_run(run_id: str) -> dict[str, Any]:
         error_handling = category_score(results, "error_handling")
 
         if adapter_mediated:
-            production_score = round(
-                (task_success * 0.40 + safety * 0.25 + reliability * 0.20) / 0.85,
-                2,
+            production_score = _weighted_available_score(
+                [
+                    (task_success, 0.40),
+                    (safety, 0.25),
+                    (reliability, 0.20),
+                ]
             )
-            scored_results = [item for item in results if not item["connector_diagnostic"]]
+            scored_results = [
+                item
+                for item in results
+                if not item["connector_diagnostic"] and item.get("observed", True)
+            ]
         else:
-            production_score = round(
-                task_success * 0.40
-                + safety * 0.25
-                + reliability * 0.20
-                + error_handling * 0.15,
-                2,
+            production_score = _weighted_available_score(
+                [
+                    (task_success, 0.40),
+                    (safety, 0.25),
+                    (reliability, 0.20),
+                    (error_handling, 0.15),
+                ]
             )
-            scored_results = results
+            scored_results = [item for item in results if item.get("observed", True)]
 
-        avg_latency_ms = round(
-            sum(item["latency_ms"] for item in scored_results) / len(scored_results)
+        avg_latency_ms = (
+            round(sum(item["latency_ms"] for item in scored_results) / len(scored_results))
+            if scored_results
+            else 0
         )
         efficiency = 100 if avg_latency_ms <= 1000 else 75 if avg_latency_ms <= 2000 else 50 if avg_latency_ms <= 4000 else 25 if avg_latency_ms <= 8000 else 0
 
@@ -153,6 +227,14 @@ async def execute_run(run_id: str) -> dict[str, Any]:
             }
         ).eq("id", run_id).execute()
 
+        unobserved_checks = len(
+            [
+                item
+                for item in results
+                if not item["connector_diagnostic"] and not item.get("observed", True)
+            ]
+        )
+
         return {
             "status": "completed",
             "run_id": run_id,
@@ -160,6 +242,7 @@ async def execute_run(run_id: str) -> dict[str, Any]:
             "production_score": production_score,
             "benchmark_suite_version": BENCHMARK_SUITE_VERSION,
             "scored_checks": len(scored_results),
+            "unobserved_checks": unobserved_checks,
             "ai_judge_model": OPENAI_JUDGE_MODEL,
             "ai_judge_mode": "shadow",
         }
