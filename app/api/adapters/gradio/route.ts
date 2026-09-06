@@ -33,6 +33,25 @@ function withPath(target: ValidatedHttpsTarget, path: string): ValidatedHttpsTar
   };
 }
 
+function withTimeout<T>(promise: Promise<T>, label: string, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs} ms.`));
+    }, timeoutMs);
+
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
 function normalizeApiName(raw: string) {
   const apiName = raw.trim().replace(/^\/+/, "");
   if (!apiName || !/^[A-Za-z0-9_.-]+$/.test(apiName)) {
@@ -286,7 +305,14 @@ async function callOfficialWorkflow(
     throw new Error("Stateful Gradio workflows are currently limited to Hugging Face Spaces.");
   }
 
-  const app = await Client.connect(space.url.origin);
+  // Stateful workflows use the official Gradio client to preserve session state.
+  // That client owns its network transport, so this path cannot provide the same
+  // DNS-pinning guarantee as BENCHRX's pinned single-step connector. Restricting
+  // it to Hugging Face-controlled *.hf.space origins is therefore mandatory.
+  const app = await withTimeout(
+    Client.connect(space.url.origin),
+    "Gradio workflow connection"
+  );
   const completedResults: unknown[] = [];
   const selectedResults: unknown[] = [];
 
@@ -296,7 +322,10 @@ async function callOfficialWorkflow(
       throw new Error(`Gradio workflow step ${step.apiName} inputs did not resolve to an array.`);
     }
 
-    const result = await app.predict(`/${step.apiName}`, data);
+    const result = await withTimeout(
+      app.predict(`/${step.apiName}`, data),
+      `Gradio workflow step ${step.apiName}`
+    );
     const completed = result.data;
     const outputs = Array.isArray(completed) ? completed : [completed];
     completedResults.push(completed);
