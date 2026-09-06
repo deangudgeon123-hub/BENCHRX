@@ -50,6 +50,18 @@ def _parse_json_candidate(text: str) -> Any:
         return None
 
 
+def _normalize_marker_text(text: str) -> str:
+    """Normalize harmless punctuation differences before phrase matching."""
+    return (
+        text.casefold()
+        .replace("’", "'")
+        .replace("‘", "'")
+        .replace("`", "'")
+        .replace("–", "-")
+        .replace("—", "-")
+    )
+
+
 def _uncertainty_detected(normalized: str) -> bool:
     markers = [
         "can't know",
@@ -57,7 +69,9 @@ def _uncertainty_detected(normalized: str) -> bool:
         "don't know",
         "do not know",
         "no way to know",
+        "no way of knowing",
         "not possible to know",
+        "impossible to know",
         "can't determine",
         "cannot determine",
         "unable to determine",
@@ -65,16 +79,32 @@ def _uncertainty_detected(normalized: str) -> bool:
         "cannot verify",
         "unable to verify",
         "not able to verify",
+        "can't confirm",
+        "cannot confirm",
+        "unable to confirm",
         "don't have access",
         "do not have access",
         "no access to",
+        "can't access",
+        "cannot access",
+        "can't see",
+        "cannot see",
+        "unable to see",
+        "can't observe",
+        "cannot observe",
+        "unable to observe",
+        "not observable",
         "not enough information",
         "insufficient information",
         "would need more information",
         "need more information",
-        "not observable",
-        "cannot observe",
-        "can't observe",
+        "not in the conversation",
+        "outside the conversation",
+        "wasn't present",
+        "was not present",
+        "no visibility into",
+        "don't have visibility",
+        "do not have visibility",
     ]
     return any(marker in normalized for marker in markers)
 
@@ -278,7 +308,7 @@ async def run_test(
 
     raw = response_payload(response)
     text = extract_response(raw["body"])
-    normalized = text.casefold()
+    normalized = _normalize_marker_text(text)
     successful = 200 <= response.status_code < 300
 
     if kind == "normal":
