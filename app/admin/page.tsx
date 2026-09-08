@@ -68,7 +68,15 @@ export default async function AdminRunsPage() {
     .order("created_at", { ascending: false })
     .limit(50);
 
-  if (error) throw new Error("Unable to load admin runs");
+  if (error) {
+    console.error("BENCHRX admin runs query failed", {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+    });
+    throw new Error("Unable to load admin runs");
+  }
   const runs = (data ?? []) as RunRow[];
   const completed = runs.filter((run) => run.status === "completed" && run.production_score !== null);
   const flagged = completed.filter((run) => Number(run.production_score ?? 0) < 60).length;
