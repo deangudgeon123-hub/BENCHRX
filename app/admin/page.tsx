@@ -11,10 +11,11 @@ type AgentRow = {
   name: string;
   slug: string;
   category: string;
-  endpoint_url: string | null;
 };
 
 type RunRow = {
+  suite_version: string | null;
+  scoring_policy_version: string | null;
   id: string;
   agent_id: string;
   status: string;
@@ -54,26 +55,24 @@ function scoreTone(score: number | null) {
 export default async function AdminRunsPage() {
   await requireAdmin();
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !anonKey) throw new Error("Missing Supabase public environment variables");
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceKey) throw new Error("Missing server database configuration");
 
-  const supabase = createClient(supabaseUrl, anonKey, {
+  const supabase = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
   const { data, error } = await supabase
     .from("benchmark_runs")
-    .select("id,agent_id,status,production_score,task_success_score,reliability_score,safety_score,efficiency_score,avg_latency_ms,created_at,completed_at,agents(id,name,slug,category)")
+    .select("id,agent_id,status,production_score,task_success_score,reliability_score,safety_score,efficiency_score,avg_latency_ms,created_at,completed_at,suite_version,scoring_policy_version,agents(id,name,slug,category)")
     .order("created_at", { ascending: false })
     .limit(50);
 
-  if (error) throw new Error(`Unable to load admin runs: ${error.message}`);
+  if (error) throw new Error("Unable to load admin runs");
   const runs = (data ?? []) as RunRow[];
   const completed = runs.filter((run) => run.status === "completed" && run.production_score !== null);
   const flagged = completed.filter((run) => Number(run.production_score ?? 0) < 60).length;
-  const avgScore = completed.length
-    ? Math.round(completed.reduce((sum, run) => sum + Number(run.production_score ?? 0), 0) / completed.length)
-    : 0;
+
 
   return (
     <main className="min-h-screen">
@@ -86,7 +85,7 @@ export default async function AdminRunsPage() {
             </div>
             <h1 className="mt-4 text-4xl font-black tracking-[-0.045em] sm:text-5xl">Benchmark admin</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--muted)]">
-              Read-only view of recent benchmark runs and raw evaluator evidence. Requires operator authentication. Sensitive payloads are excluded.
+              Read-only view of recent runs and execution metadata. Requires operator authentication. Sensitive payloads are excluded.
             </p>
           </div>
           <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-xs leading-5 text-amber-100/80">
@@ -100,8 +99,8 @@ export default async function AdminRunsPage() {
             <p className="mt-4 text-4xl font-black">{runs.length}</p>
           </div>
           <div className="rounded-3xl border border-white/8 bg-[var(--surface)] p-6">
-            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-[var(--muted)]"><FlaskConical size={15} /> Avg score</div>
-            <p className="mt-4 text-4xl font-black">{avgScore}</p>
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-[var(--muted)]"><FlaskConical size={15} /> Scored runs</div>
+            <p className="mt-4 text-4xl font-black">{completed.length}</p>
           </div>
           <div className="rounded-3xl border border-white/8 bg-[var(--surface)] p-6">
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-[var(--muted)]"><ShieldAlert size={15} /> Under 60</div>
@@ -126,7 +125,7 @@ export default async function AdminRunsPage() {
                 >
                   <div>
                     <p className="font-black text-white">{agent?.name ?? "Unknown agent"}</p>
-                    <p className="mt-1 text-xs text-[var(--muted)]">{agent?.category ?? "—"} · {run.id.slice(0, 8)}</p>
+                    <p className="mt-1 text-xs text-[var(--muted)]">{agent?.category ?? "—"} · {run.suite_version ?? "legacy"} / {run.scoring_policy_version ?? "unversioned"} · {run.id.slice(0, 8)}</p>
                   </div>
                   <div>
                     <p className="text-xs text-[var(--muted)]">Score</p>

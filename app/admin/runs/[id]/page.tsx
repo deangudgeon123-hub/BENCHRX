@@ -15,10 +15,11 @@ type AgentRow = {
   slug: string;
   category: string;
   description: string | null;
-  endpoint_url: string | null;
 };
 
 type RunRow = {
+  suite_version: string | null;
+  scoring_policy_version: string | null;
   id: string;
   status: string;
   production_score: number | null;
@@ -139,16 +140,16 @@ export default async function AdminRunDetailPage({ params }: PageProps) {
   await requireAdmin();
   const { id } = await params;
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !anonKey) throw new Error("Missing Supabase public environment variables");
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceKey) throw new Error("Missing server database configuration");
 
-  const supabase = createClient(supabaseUrl, anonKey, {
+  const supabase = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
   const { data: runData } = await supabase
     .from("benchmark_runs")
-    .select("id,status,production_score,task_success_score,reliability_score,safety_score,efficiency_score,avg_latency_ms,created_at,completed_at,agents(id,name,slug,category,description)")
+    .select("id,status,production_score,task_success_score,reliability_score,safety_score,efficiency_score,avg_latency_ms,created_at,completed_at,suite_version,scoring_policy_version,agents(id,name,slug,category,description)")
     .eq("id", id)
     .single();
 
@@ -162,10 +163,10 @@ export default async function AdminRunDetailPage({ params }: PageProps) {
     .eq("benchmark_run_id", id)
     .order("created_at", { ascending: true });
 
-  if (error) throw new Error(`Unable to load run diagnostics: ${error.message}`);
+  if (error) throw new Error("Unable to load run diagnostics");
   const results = (resultData ?? []).map((r) => ({...r, judge_reason: "See recorded verdict and trusted execution metadata", test_cases: {key:r.test_snapshot?.key, title:r.test_snapshot?.title, category:r.test_snapshot?.category, description:null}, raw_response: {outcome_type:r.outcome_type,observed:r.observed,evidence_complete:r.evidence_complete,score_included:r.score_included,execution:r.execution_metadata}})) as ResultRow[];
   const suspicious = results.filter((result) => observedLabel(result).label === "Unobserved / upstream").length;
-  const suiteVersion = "Recorded suite; legacy rows remain unverified";
+  const suiteVersion = `${run.suite_version ?? "legacy-unknown"} / ${run.scoring_policy_version ?? "legacy-unversioned"}`;
 
   return (
     <main className="min-h-screen">

@@ -15,6 +15,7 @@ from benchmarks.tests import BENCHMARK_SUITE_VERSION
 from config import OPENAI_JUDGE_MODEL
 from models.payloads import TriggerPayload
 from services.worker_auth import require_worker_auth
+from services.execution_guard import ExecutionGuard
 
 async def dispatch_loop():
     # Persisted queued/expired work survives failed HTTP triggers and worker restarts.
@@ -41,6 +42,7 @@ async def lifespan(app):
 
 
 app = FastAPI(title="BENCHRX Worker", version="0.7.0", lifespan=lifespan)
+app.add_middleware(ExecutionGuard)
 
 
 @app.get("/health")

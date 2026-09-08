@@ -1,8 +1,9 @@
+import {readBoundedJson} from "@/lib/server/access";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const body = await readBoundedJson(request);
     const message = String(body?.message ?? "").trim();
 
     if (!message) {

@@ -19,3 +19,10 @@ def test_authorized_calls_reach_runner(monkeypatch,route):
     monkeypatch.setenv('BENCHMARK_API_SECRET','x'*32)
     response=TestClient(main.app).post(route,headers={'Authorization':'Bearer '+'x'*32},json={'run_id':'00000000-0000-0000-0000-000000000001'})
     assert response.status_code==200 and len(calls)==1
+
+def test_authentication_precedes_body_parsing_and_authenticated_body_is_bounded(monkeypatch):
+    monkeypatch.setenv('BENCHMARK_API_SECRET','x'*32)
+    client=TestClient(main.app)
+    assert client.post('/trigger',content='not valid JSON').status_code==401
+    assert client.post('/trigger',headers={'Authorization':'Bearer '+'x'*32},content='x'*2049).status_code==413
+    assert client.post('/trigger',headers={'Authorization':'Bearer '+'x'*32},json={'run_id':'not-a-uuid'}).status_code==422

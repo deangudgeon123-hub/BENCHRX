@@ -30,7 +30,9 @@ export async function readBoundedJson(request: Request, maxBytes=32768): Promise
   if (!reader) throw new Error('JSON body required');
   let size=0;const chunks: Uint8Array[]=[];
   try {
-    while(true) {const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>maxBytes)throw new Error('Request too large');chunks.push(value);}
+    const deadline=Date.now()+10000;
+    while(true) {let timer:ReturnType<typeof setTimeout>|undefined;
+    const {done,value}=await Promise.race([reader.read(),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error("Request body deadline exceeded")),Math.max(1,deadline-Date.now()));})]).finally(()=>{if(timer)clearTimeout(timer)});if(done)break;size+=value.length;if(size>maxBytes)throw new Error('Request too large');chunks.push(value);}
     const body=JSON.parse(Buffer.concat(chunks).toString('utf8'));
     if (!body || typeof body!=='object' || Array.isArray(body)) throw new Error('JSON object required');
     return body;
