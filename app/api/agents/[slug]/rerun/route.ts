@@ -67,51 +67,11 @@ export async function POST(request: Request, { params }: RouteContext) {
       return NextResponse.json({ error: "Agent not found." }, { status: 404 });
     }
 
-    const { data: activeRuns } = await supabase
-      .from("benchmark_runs")
-      .select("id,status")
-      .eq("agent_id", agent.id)
-      .in("status", ["queued", "running"])
-      .limit(1);
-
-    if (activeRuns?.length) {
-      return NextResponse.json(
-        { error: "A benchmark is already running for this agent." },
-        { status: 409 }
-      );
-    }
-
-    const { data: latestRuns } = await supabase
-      .from("benchmark_runs")
-      .select("created_at")
-      .eq("agent_id", agent.id)
-      .order("created_at", { ascending: false })
-      .limit(1);
-
-    const latestCreatedAt = latestRuns?.[0]?.created_at;
-    if (latestCreatedAt) {
-      const ageMs = Date.now() - new Date(latestCreatedAt).getTime();
-      if (ageMs < 60_000) {
-        return NextResponse.json(
-          { error: "Please wait a minute before running this agent again." },
-          { status: 429 }
-        );
-      }
-    }
-
-    const { data: benchmarkRun, error: benchmarkError } = await supabase
-      .from("benchmark_runs")
-      .insert({
-        agent_id: agent.id,
-        workspace_id: agent.workspace_id,
-        status: "queued",
-      })
-      .select("id,status,created_at")
-      .single();
+    const {data:benchmarkRun,error:benchmarkError}=await supabase.rpc("benchrx_enqueue_run",{p_agent_id:agent.id});
 
     if (benchmarkError || !benchmarkRun) {
       console.error("BENCHRX request failed");
-      return NextResponse.json({ error: "Could not queue another benchmark." }, { status: 500 });
+      return NextResponse.json({ error: "Queue admission denied. Check active runs and retry later." }, { status: 500 });
     }
 
     try {

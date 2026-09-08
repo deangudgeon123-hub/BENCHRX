@@ -286,21 +286,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Could not save this agent." }, { status: 500 });
     }
 
-    const { data: benchmarkRun, error: benchmarkError } = await supabase
-      .from("benchmark_runs")
-      .insert({
-        agent_id: agent.id,
-        workspace_id: agent.workspace_id,
-        status: "queued",
-      })
-      .select("id,status,created_at")
-      .single();
+    const {data:benchmarkRun,error:benchmarkError}=await supabase.rpc("benchrx_enqueue_run",{p_agent_id:agent.id});
 
     if (benchmarkError || !benchmarkRun) {
       console.error("BENCHRX request failed");
       await supabase.from("agents").delete().eq("id", agent.id);
       return NextResponse.json(
-        { error: "Agent was not saved because its benchmark run could not be queued." },
+        { error: "Queue admission denied. Agent was not saved." },
         { status: 500 }
       );
     }

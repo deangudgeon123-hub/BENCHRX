@@ -5,7 +5,7 @@ import {PGlite} from '@electric-sql/pglite';
 async function database() {
  const db=new PGlite();
  await db.exec('create role anon; create role authenticated; create role service_role bypassrls;');
- for (const name of ['001_initial_schema.sql','002_measurement_provenance.sql','003_execution_leases.sql','004_private_evidence_projections.sql']) {
+ for (const name of ['001_initial_schema.sql','002_measurement_provenance.sql','003_execution_leases.sql','004_private_evidence_projections.sql','005_queue_admission.sql']) {
   await db.exec(fs.readFileSync(`supabase/migrations/${name}`,'utf8').replace('create extension if not exists "pgcrypto";',''));
  }
  return db;
@@ -47,4 +47,20 @@ test('anonymous reads cannot obtain raw evidence or endpoint configuration',asyn
  await assert.rejects(db.query('select endpoint_url from public_agents'));
  await assert.rejects(db.query("update public_agents set name='changed'"));
  } finally {await db.close();}
+});
+
+test('queue admission rejects duplicate active work and enforces capacity',async()=>{
+ const db=await database();
+ try {
+  const ids:string[]=[];
+  for(let i=0;i<11;i++)ids.push((await db.query<{id:string}>("insert into agents(name,slug,endpoint_url) values('Fixture',$1,'https://example.com') returning id",['queue-'+i])).rows[0].id);
+  await db.query('select benchrx_enqueue_run($1)',[ids[0]]);
+  await assert.rejects(db.query('select benchrx_enqueue_run($1)',[ids[0]]));
+  for(const id of ids.slice(1,10))await db.query('select benchrx_enqueue_run($1)',[id]);
+  await assert.rejects(db.query('select benchrx_enqueue_run($1)',[ids[10]]));
+  await db.exec("update benchmark_runs set status='failed'");
+  await assert.rejects(db.query('select benchrx_enqueue_run($1)',[ids[0]]));
+  await db.exec('set role anon');
+  await assert.rejects(db.query('select benchrx_enqueue_run($1)',[ids[10]]));
+ }finally{await db.close();}
 });
