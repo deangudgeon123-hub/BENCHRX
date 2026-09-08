@@ -17,3 +17,21 @@ async def test_all_answers_validated_and_numeric_address_connected():
  assert b.host=='93.184.216.34'
  async def mixed(*args,**kwargs):return await public()+[(socket.AF_INET6,socket.SOCK_STREAM,6,'',('::1',443,0,0))]
  with pytest.raises(ValueError):await PublicNetworkBackend(b,mixed).connect_tcp('example.com',443)
+
+@pytest.mark.asyncio
+async def test_only_trusted_adapter_gets_secrets_and_query_moves_to_body(monkeypatch):
+ import json,httpx
+ from services import agent_client
+ monkeypatch.setenv('BENCHRX_ADAPTER_ORIGINS','https://benchrx.example')
+ monkeypatch.setenv('BENCHRX_ADAPTER_SECRET','a'*32)
+ monkeypatch.setattr(agent_client,'VERCEL_AUTOMATION_BYPASS_SECRET','fixture-bypass')
+ seen=[]
+ def reply(request):seen.append(request);return httpx.Response(200,json={'response':'READY'})
+ async with httpx.AsyncClient(transport=httpx.MockTransport(reply)) as c:
+  await agent_client.send_request(c,'https://benchrx.example/api/adapters/generic?fixedBody=secret-configuration',{'message':'fixture'})
+  await agent_client.send_request(c,'https://attacker.example/?next=/api/adapters/generic',{'message':'fixture'})
+ assert not seen[0].url.query
+ assert seen[0].headers['authorization']=='Bearer '+'a'*32
+ assert seen[0].headers['x-vercel-protection-bypass']=='fixture-bypass'
+ assert json.loads(seen[0].content)['_benchrx_config']['fixedBody']=='secret-configuration'
+ assert 'authorization' not in seen[1].headers and 'x-vercel-protection-bypass' not in seen[1].headers

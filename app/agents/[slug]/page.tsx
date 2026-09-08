@@ -211,6 +211,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
   const taskCoverage = run?.coverage?.task_success ?? categoryCoverage(results, "task_success");
   const reliabilityCoverage = run?.coverage?.reliability ?? categoryCoverage(results, "reliability");
   const safetyCoverage = run?.coverage?.safety ?? categoryCoverage(results, "safety");
+  const positiveReadiness=run?.readiness_status === "meets_benchmark_gates";
   const productionScore = run?.production_score == null ? null : Number(run.production_score);
   const previousScore = previousRun?.production_score == null ? null : Number(previousRun.production_score);
   const scoreDelta = comparableRuns(run, previousRun) && productionScore !== null && previousScore !== null ? productionScore - previousScore : null;
@@ -257,22 +258,22 @@ export default async function AgentScorecardPage({ params }: PageProps) {
           <BenchmarkPending />
         ) : (
           <>
-            <div className={`mt-10 flex flex-col gap-4 rounded-3xl p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6 ${productionScore === null ? "border border-amber-500/20 bg-amber-500/10" : "border border-emerald-500/20 bg-emerald-500/10"}`}>
+            <div className={`mt-10 flex flex-col gap-4 rounded-3xl p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6 ${!positiveReadiness ? "border border-amber-500/20 bg-amber-500/10" : "border border-emerald-500/20 bg-emerald-500/10"}`}>
               <div className="flex items-start gap-3">
-                {productionScore === null ? <CircleGauge className="mt-0.5 shrink-0 text-amber-300" size={21} /> : <CheckCircle2 className="mt-0.5 shrink-0 text-emerald-300" size={21} />}
+                {!positiveReadiness ? <CircleGauge className="mt-0.5 shrink-0 text-amber-300" size={21} /> : <CheckCircle2 className="mt-0.5 shrink-0 text-emerald-300" size={21} />}
                 <div>
-                  <p className={`font-black ${productionScore === null ? "text-amber-50" : "text-emerald-50"}`}>{productionScore === null ? "Benchmark complete — score withheld" : "Benchmark ready"}</p>
-                  <p className={`mt-1 text-sm leading-6 ${productionScore === null ? "text-amber-100/70" : "text-emerald-100/70"}`}>{productionScore === null ? `Insufficient behavioural coverage: ${insufficientCategories.join("; ")}.` : readinessLabel(run, productionScore)}</p>
+                  <p className={`font-black ${!positiveReadiness ? "text-amber-50" : "text-emerald-50"}`}>{productionScore === null ? "Benchmark complete — score withheld" : readinessLabel(run, productionScore)}</p>
+                  <p className={`mt-1 text-sm leading-6 ${!positiveReadiness ? "text-amber-100/70" : "text-emerald-100/70"}`}>{productionScore === null ? `Insufficient behavioural coverage: ${insufficientCategories.join("; ")}.` : readinessLabel(run, productionScore)}</p>
                 </div>
               </div>
-              <div className={`flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] ${productionScore === null ? "text-amber-100/80" : "text-emerald-100/80"}`}><ShieldCheck size={14} /> {productionScore === null ? "Insufficient evidence" : readinessLabel(run, productionScore)}</div>
+              <div className={`flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] ${!positiveReadiness ? "text-amber-100/80" : "text-emerald-100/80"}`}><ShieldCheck size={14} /> {productionScore === null ? "Insufficient evidence" : readinessLabel(run, productionScore)}</div>
             </div>
 
             <div className="mt-6 grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
               <div className="relative overflow-hidden rounded-3xl border border-[var(--accent)]/20 bg-[var(--surface)] p-8 sm:p-10">
                 <div className="absolute right-0 top-0 h-44 w-44 rounded-full bg-[var(--accent)]/8 blur-3xl" />
                 <div className="relative">
-                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-[var(--muted)]"><CircleGauge size={16} /> Production-readiness result</div>
+                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-[var(--muted)]"><CircleGauge size={16} /> Recorded benchmark result</div>
                   {productionScore === null ? (
                     <>
                       <p className="mt-7 text-4xl font-black tracking-[-0.045em] text-white sm:text-5xl">Score withheld</p>
@@ -294,7 +295,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                           </span>
                         ) : null}
                       </div>
-                      <p className="mt-4 max-w-md text-sm leading-6 text-[var(--muted)]">{scoreSummary(productionScore)}</p>
+                      <p className="mt-4 max-w-md text-sm leading-6 text-[var(--muted)]">{positiveReadiness ? scoreSummary(productionScore) : "This numerical result does not establish production readiness. Review the recorded policy and gate findings."}</p>
                     </>
                   )}
                   <div className="mt-8 grid grid-cols-2 gap-3 border-t border-white/8 pt-6 sm:grid-cols-4">
