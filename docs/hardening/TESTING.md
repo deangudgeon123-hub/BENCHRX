@@ -47,7 +47,7 @@ Set these on the staging worker:
 - `BENCHRX_ADAPTER_SECRET`: matches the preview's adapter secret.
 - `BENCHRX_ADAPTER_ORIGINS`: comma-separated exact HTTPS preview origins allowed to receive adapter credentials.
 - `BENCHRX_POLL_QUEUE=1`: recover persisted queued and expired-lease work.
-- Optional `VERCEL_AUTOMATION_BYPASS_SECRET`: only for protected preview adapters; forwarded only to allowlisted adapter origins and paths.
+- `VERCEL_AUTOMATION_BYPASS_SECRET`: **required for protected Vercel preview adapters**, separate from `BENCHRX_ADAPTER_SECRET`; forwarded only to allowlisted adapter origins and paths. It is optional only when deployment protection is not enabled. Restart the worker after setting it. See `STAGING-ADAPTER-401.md` for the verified FrontierAgent failure.
 - Leave `OPENAI_API_KEY` unset initially. Shadow AI is optional and never changes the public score.
 
 Start the worker from the repository root with:

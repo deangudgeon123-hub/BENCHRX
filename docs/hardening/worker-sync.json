@@ -23,7 +23,7 @@
     "worker/services/supabase.py": "b9ead11189648be93e5314400bfffb57daa69327723155b88cf6204746d28c92",
     "worker/services/worker_auth.py": "a6621de2730e58fc0403e77001d4d741bf21a779c22e49fe4406e34d2307521a",
     "worker/tests/test_measurement.py": "24d42593b449445b687ef845c92cf21971890b6ca1603a6f04f598cc1fc960c5",
-    "worker/tests/test_network.py": "f6c5e67423bbef15d2e164c5b878d088abc63d5f2e5c5294cd4f94c968d914cd",
+    "worker/tests/test_network.py": "0123825fbbf0c092b4fca0ec92d6637edfc8d0cb01d73209d001aebc049b3c8e",
     "worker/tests/test_policy.py": "f74e49a8b787cb4efced9e32bb228f51ce3cc4217b522f074875d43644d5ea76",
     "worker/tests/test_redaction.py": "32f3c1a51e9e1eaf209570b4abacdd4d36542c070290b6b808e906fabd85e004",
     "worker/tests/test_runner.py": "cd478ca895fc6295e07c1e192a333f2917f4c8b2c65b2b58f56e9cdb8a243eeb",
