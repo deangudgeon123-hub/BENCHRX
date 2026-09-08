@@ -1,6 +1,6 @@
 // Protocol extraction is independent of prompts, expected answers and endpoint URLs.
 export function parseSseComplete(text: string): unknown {
-  for (const block of text.split(/\r?\n\r?\n/)) {
+  for (const block of text.split(/\r?\n\r?\n/).slice(0,-1)) {
     const lines = block.split(/\r?\n/);
     const event = lines.find((line) => line.startsWith('event:'))?.slice(6).trim();
     const data = lines.filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trimStart()).join('\n');

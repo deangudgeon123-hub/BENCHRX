@@ -11,6 +11,6 @@ test('extracts only supported explicit assistant outputs', () => {
   assert.equal(extractAssistantText([['hi','READY']]),'READY');
 });
 test('stream requires a valid complete event', () => {
-  for (const value of ['', 'event: generating\ndata: ["READY"]\n\n', 'event: heartbeat\ndata: null\n\n','event: complete\ndata: invalid\n\n','event: error\ndata: "failure"\n\n']) assert.throws(()=>parseSseComplete(value));
+  for (const value of ['event: complete\ndata: ["READY"]', '', 'event: generating\ndata: ["READY"]\n\n', 'event: heartbeat\ndata: null\n\n','event: complete\ndata: invalid\n\n','event: error\ndata: "failure"\n\n']) assert.throws(()=>parseSseComplete(value));
   assert.deepEqual(parseSseComplete('event: generating\ndata: ["partial"]\n\nevent: complete\ndata: ["READY"]\n\n'),['READY']);
 });
