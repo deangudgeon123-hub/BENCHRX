@@ -1,3 +1,4 @@
+import { requireAdapter, readBoundedJson, adapterConfig } from "@/lib/server/access";
 import { parseSseComplete, extractAssistantText } from "@/lib/server/gradio-output";
 import { Client } from "@gradio/client";
 import { NextResponse } from "next/server";
@@ -271,10 +272,13 @@ async function callOfficialWorkflow(
 }
 
 export async function POST(request: Request) {
+  const denied = requireAdapter(request);
+  if (denied) return denied;
   try {
-    const adapterUrl = new URL(request.url);
+    const incoming = await readBoundedJson(request);
+    const config = adapterConfig(incoming);
     const space = await validateAndPinPublicHttpsUrl(
-      adapterUrl.searchParams.get("space")?.trim() ?? "",
+      config.get("space")?.trim() ?? "",
       {
         invalidUrlMessage: "Enter a valid Gradio Space URL.",
         httpsRequiredMessage: "Gradio Space endpoints must use HTTPS.",
@@ -282,12 +286,11 @@ export async function POST(request: Request) {
     );
 
     const plan = parsePlan(
-      adapterUrl.searchParams.get("inputs") ?? "[]",
-      adapterUrl.searchParams.get("apiName") ?? "chat",
-      adapterUrl.searchParams.get("outputIndex") ?? "0"
+      config.get("inputs") ?? "[]",
+      config.get("apiName") ?? "chat",
+      config.get("outputIndex") ?? "0"
     );
 
-    const incoming = await request.json().catch(() => ({}));
     const hasMessage =
       incoming &&
       typeof incoming === "object" &&
@@ -318,7 +321,6 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error: "Gradio completed but BENCHRX could not extract a text response.",
-          upstream: completedResults[plan.finalStepIndex],
         },
         { status: 502 }
       );
@@ -333,8 +335,7 @@ export async function POST(request: Request) {
       clientMode: plan.isWorkflow ? "official" : "pinned",
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Gradio adapter failed";
-    console.error("Gradio adapter failed", error);
-    return NextResponse.json({ error: message }, { status: 400 });
+    console.error("Connector request failed");
+    return NextResponse.json({ error: "Connector execution failed" }, { status: 502 });
   }
 }

@@ -1,3 +1,5 @@
+import {validateAndPinPublicHttpsUrl} from "@/lib/server/pinned-https";
+import { requireOperator, readBoundedJson, appOrigin } from "@/lib/server/access";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -26,9 +28,10 @@ function getServerSupabase() {
 
 async function triggerBenchmarkWorker(runId: string) {
   const workerBaseUrl = (
-    process.env.BENCHMARK_API_URL || "https://benchrx-worker.onrender.com"
+    process.env.BENCHMARK_API_URL || ""
   ).replace(/\/$/, "");
 
+  if (!workerBaseUrl || (process.env.BENCHMARK_API_SECRET?.length ?? 0) < 32) throw new Error("Worker is not configured");
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
@@ -42,6 +45,8 @@ async function triggerBenchmarkWorker(runId: string) {
     headers,
     body: JSON.stringify({ run_id: runId }),
     cache: "no-store",
+    signal: AbortSignal.timeout(65000),
+    redirect: "error",
   });
 
   if (!response.ok) {
@@ -79,7 +84,7 @@ function buildCustomEndpoint(request: Request, body: Record<string, unknown>) {
     throw new Error("Fixed request JSON must be a valid JSON object.");
   }
 
-  const endpoint = new URL("/api/adapters/generic", new URL(request.url).origin);
+  const endpoint = new URL("/api/adapters/generic", appOrigin());
   endpoint.searchParams.set("target", target.toString());
   endpoint.searchParams.set("requestPath", requestPath);
   endpoint.searchParams.set("responsePath", responsePath);
@@ -154,7 +159,7 @@ function buildGradioEndpoint(request: Request, body: Record<string, unknown>) {
     throw new Error("Gradio output index must be a non-negative integer.");
   }
 
-  const endpoint = new URL("/api/adapters/gradio", new URL(request.url).origin);
+  const endpoint = new URL("/api/adapters/gradio", appOrigin());
   endpoint.searchParams.set("space", parsedSpace.origin);
   endpoint.searchParams.set("apiName", apiName);
   endpoint.searchParams.set("inputs", gradioInputs);
@@ -177,7 +182,7 @@ export async function GET() {
     .limit(8);
 
   if (error) {
-    console.error("Recent agents query failed", error);
+    console.error("BENCHRX request failed");
     return NextResponse.json({ error: "Could not load recent benchmarks." }, { status: 500 });
   }
 
@@ -207,8 +212,10 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const denied = requireOperator(request);
+  if (denied) return denied;
   try {
-    const body = (await request.json()) as Record<string, unknown>;
+    const body = (await readBoundedJson(request)) as Record<string, unknown>;
     const name = String(body.name ?? "").trim();
     const category = String(body.category ?? "general").trim().toLowerCase();
     const description = String(body.description ?? "").trim();
@@ -249,14 +256,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Enter a valid agent endpoint URL." }, { status: 400 });
     }
 
-    if (!["http:", "https:"].includes(parsedUrl.protocol)) {
-      return NextResponse.json({ error: "Agent endpoint must use HTTP or HTTPS." }, { status: 400 });
+    if (parsedUrl.protocol !== "https:") {
+      return NextResponse.json({ error: "Agent endpoint must use HTTPS." }, { status: 400 });
     }
 
+    await validateAndPinPublicHttpsUrl(parsedUrl.toString(), {invalidUrlMessage:"Invalid endpoint",httpsRequiredMessage:"HTTPS required"});
     const supabase = getServerSupabase();
 
     if (!supabase) {
-      console.error("Missing Supabase server environment variables");
+      console.error("BENCHRX request failed");
       return NextResponse.json({ error: "Server configuration is incomplete." }, { status: 500 });
     }
 
@@ -270,11 +278,11 @@ export async function POST(request: Request) {
         endpoint_url: parsedUrl.toString(),
         is_public: true,
       })
-      .select("id,name,slug,category,endpoint_url,workspace_id,created_at")
+      .select("id,name,slug,category,workspace_id,created_at")
       .single();
 
     if (agentError || !agent) {
-      console.error("Supabase agent insert failed", agentError);
+      console.error("BENCHRX request failed");
       return NextResponse.json({ error: "Could not save this agent." }, { status: 500 });
     }
 
@@ -289,7 +297,7 @@ export async function POST(request: Request) {
       .single();
 
     if (benchmarkError || !benchmarkRun) {
-      console.error("Supabase benchmark run insert failed", benchmarkError);
+      console.error("BENCHRX request failed");
       await supabase.from("agents").delete().eq("id", agent.id);
       return NextResponse.json(
         { error: "Agent was not saved because its benchmark run could not be queued." },
@@ -302,7 +310,7 @@ export async function POST(request: Request) {
       await triggerBenchmarkWorker(benchmarkRun.id);
       benchmarkTriggered = true;
     } catch (error) {
-      console.error("BENCHRX worker trigger failed", error);
+      console.error("BENCHRX request failed");
     }
 
     return NextResponse.json(
@@ -314,7 +322,7 @@ export async function POST(request: Request) {
       { status: 201 }
     );
   } catch (error) {
-    console.error("Agent submission failed", error);
+    console.error("BENCHRX request failed");
     return NextResponse.json({ error: "Something went wrong." }, { status: 500 });
   }
 }

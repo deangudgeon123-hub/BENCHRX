@@ -1,10 +1,13 @@
+import { requireOperator, readBoundedJson, appOrigin } from "@/lib/server/access";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
+  const denied = requireOperator(request);
+  if (denied) return denied;
   try {
-    const body = await request.json();
+    const body = await readBoundedJson(request);
     const connectionType = String(body.connectionType ?? "custom").trim().toLowerCase();
-    const origin = new URL(request.url).origin;
+    const origin = appOrigin();
 
     let adapter: URL;
     if (connectionType === "gradio") {
@@ -41,6 +44,7 @@ export async function POST(request: Request) {
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.BENCHRX_ADAPTER_SECRET ?? ""}`,
     };
 
     const protectionBypass = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
@@ -48,35 +52,31 @@ export async function POST(request: Request) {
       headers["x-vercel-protection-bypass"] = protectionBypass;
     }
 
+    const connectorConfig=Object.fromEntries(adapter.searchParams);
+    adapter.search="";
     const response = await fetch(adapter, {
       method: "POST",
       headers,
       body: JSON.stringify({
+        _benchrx_config:connectorConfig,
         message: "Reply briefly to confirm this BENCHRX connection test was received.",
       }),
       cache: "no-store",
+    signal: AbortSignal.timeout(65000),
+    redirect: "error",
     });
 
     const payload = await response.json().catch(() => null);
     if (!response.ok) {
-      const detail =
-        payload && typeof payload === "object" && "error" in payload
-          ? String((payload as { error?: unknown }).error ?? "Connection test failed.")
-          : "Connection test failed.";
-      return NextResponse.json({ error: detail }, { status: response.status });
+      return NextResponse.json({ error: "Connection test failed." }, { status: response.status });
     }
-
-    const agentResponse =
-      payload && typeof payload === "object" && "response" in payload
-        ? String((payload as { response?: unknown }).response ?? "")
-        : "";
 
     return NextResponse.json({
       ok: true,
-      response: agentResponse,
+      response: "Connection succeeded; response content is retained privately.",
     });
   } catch (error) {
-    console.error("Connection test failed", error);
+    console.error("BENCHRX request failed");
     return NextResponse.json({ error: "Connection test failed." }, { status: 500 });
   }
 }

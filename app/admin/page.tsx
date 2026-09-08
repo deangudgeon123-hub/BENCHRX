@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/server/admin";
 import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
 import { Activity, ArrowRight, Clock3, FlaskConical, ShieldAlert } from "lucide-react";
@@ -51,8 +52,9 @@ function scoreTone(score: number | null) {
 }
 
 export default async function AdminRunsPage() {
+  await requireAdmin();
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const anonKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!supabaseUrl || !anonKey) throw new Error("Missing Supabase public environment variables");
 
   const supabase = createClient(supabaseUrl, anonKey, {
@@ -61,13 +63,13 @@ export default async function AdminRunsPage() {
 
   const { data, error } = await supabase
     .from("benchmark_runs")
-    .select("id,agent_id,status,production_score,task_success_score,reliability_score,safety_score,efficiency_score,avg_latency_ms,created_at,completed_at,agents(id,name,slug,category,endpoint_url)")
+    .select("id,agent_id,status,production_score,task_success_score,reliability_score,safety_score,efficiency_score,avg_latency_ms,created_at,completed_at,agents(id,name,slug,category)")
     .order("created_at", { ascending: false })
     .limit(50);
 
   if (error) throw new Error(`Unable to load admin runs: ${error.message}`);
   const runs = (data ?? []) as RunRow[];
-  const completed = runs.filter((run) => run.status === "completed");
+  const completed = runs.filter((run) => run.status === "completed" && run.production_score !== null);
   const flagged = completed.filter((run) => Number(run.production_score ?? 0) < 60).length;
   const avgScore = completed.length
     ? Math.round(completed.reduce((sum, run) => sum + Number(run.production_score ?? 0), 0) / completed.length)
@@ -84,11 +86,11 @@ export default async function AdminRunsPage() {
             </div>
             <h1 className="mt-4 text-4xl font-black tracking-[-0.045em] sm:text-5xl">Benchmark admin</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--muted)]">
-              Read-only view of recent benchmark runs and raw evaluator evidence. Keep this route preview-only until admin authentication is added.
+              Read-only view of recent benchmark runs and raw evaluator evidence. Requires operator authentication. Sensitive payloads are excluded.
             </p>
           </div>
           <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-xs leading-5 text-amber-100/80">
-            Auth not added yet — do not merge this route to public production.
+            Restricted operator diagnostics.
           </div>
         </div>
 

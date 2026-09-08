@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/server/admin";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
@@ -121,18 +122,9 @@ function hasTransportError(raw: RawResponse | null) {
 }
 
 function observedLabel(result: ResultRow) {
-  const text = extractAgentText(result.raw_response);
-  const status = findHttpStatus(result.raw_response);
-  if (!text && (hasTransportError(result.raw_response) || (status !== null && status >= 400))) {
-    return { label: "Unobserved / upstream", tone: "border-amber-500/20 bg-amber-500/10 text-amber-200" };
-  }
-  if (result.raw_response?.score_included === false) {
-    return { label: "Connector diagnostic", tone: "border-white/10 bg-white/5 text-[var(--muted)]" };
-  }
-  if (result.passed) {
-    return { label: "Agent pass", tone: "border-emerald-500/20 bg-emerald-500/10 text-emerald-200" };
-  }
-  return { label: "Agent fail", tone: "border-red-500/20 bg-red-500/10 text-red-200" };
+  const kind=result.raw_response?.outcome_type;
+  const label=kind === "connector_diagnostic" ? "Connector diagnostic" : kind === "unobserved" ? "Unobserved" : kind === "inconclusive" ? "Inconclusive" : result.passed ? "Agent pass" : "Agent fail";
+  return {label,tone:"border-white/10 bg-white/5 text-slate-300"};
 }
 
 function JsonBlock({ value }: { value: unknown }) {
@@ -144,9 +136,10 @@ function JsonBlock({ value }: { value: unknown }) {
 }
 
 export default async function AdminRunDetailPage({ params }: PageProps) {
+  await requireAdmin();
   const { id } = await params;
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const anonKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!supabaseUrl || !anonKey) throw new Error("Missing Supabase public environment variables");
 
   const supabase = createClient(supabaseUrl, anonKey, {
@@ -155,7 +148,7 @@ export default async function AdminRunDetailPage({ params }: PageProps) {
 
   const { data: runData } = await supabase
     .from("benchmark_runs")
-    .select("id,status,production_score,task_success_score,reliability_score,safety_score,efficiency_score,avg_latency_ms,created_at,completed_at,agents(id,name,slug,category,description,endpoint_url)")
+    .select("id,status,production_score,task_success_score,reliability_score,safety_score,efficiency_score,avg_latency_ms,created_at,completed_at,agents(id,name,slug,category,description)")
     .eq("id", id)
     .single();
 
@@ -165,14 +158,14 @@ export default async function AdminRunDetailPage({ params }: PageProps) {
 
   const { data: resultData, error } = await supabase
     .from("benchmark_results")
-    .select("id,passed,score,latency_ms,judge_reason,raw_response,test_cases(key,title,category,description)")
+    .select("id,passed,score,latency_ms,observed,evidence_complete,outcome_type,score_included,test_snapshot,execution_metadata")
     .eq("benchmark_run_id", id)
     .order("created_at", { ascending: true });
 
   if (error) throw new Error(`Unable to load run diagnostics: ${error.message}`);
-  const results = (resultData ?? []) as ResultRow[];
+  const results = (resultData ?? []).map((r) => ({...r, judge_reason: "See recorded verdict and trusted execution metadata", test_cases: {key:r.test_snapshot?.key, title:r.test_snapshot?.title, category:r.test_snapshot?.category, description:null}, raw_response: {outcome_type:r.outcome_type,observed:r.observed,evidence_complete:r.evidence_complete,score_included:r.score_included,execution:r.execution_metadata}})) as ResultRow[];
   const suspicious = results.filter((result) => observedLabel(result).label === "Unobserved / upstream").length;
-  const suiteVersion = results.find((result) => result.raw_response?.benchrx_suite_version)?.raw_response?.benchrx_suite_version ?? "—";
+  const suiteVersion = "Recorded suite; legacy rows remain unverified";
 
   return (
     <main className="min-h-screen">
@@ -213,7 +206,7 @@ export default async function AdminRunDetailPage({ params }: PageProps) {
         <div className="mt-5 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
           <div className="rounded-3xl border border-white/8 bg-[var(--surface)] p-6">
             <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.13em] text-[var(--muted)]"><Bot size={15} /> Agent endpoint</div>
-            <p className="mt-3 break-all font-mono text-xs leading-6 text-slate-300">{agent?.endpoint_url ?? "—"}</p>
+            <p className="mt-3 break-all font-mono text-xs leading-6 text-slate-300">{"Connection details are private"}</p>
           </div>
           <div className={`rounded-3xl border p-6 ${suspicious > 0 ? "border-amber-500/20 bg-amber-500/10" : "border-white/8 bg-[var(--surface)]"}`}>
             <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.13em] text-[var(--muted)]"><ShieldAlert size={15} /> Unobserved candidates</div>
@@ -282,7 +275,7 @@ export default async function AdminRunDetailPage({ params }: PageProps) {
                   ) : null}
 
                   <div className="mt-5">
-                    <div className="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-[0.12em] text-[var(--muted)]"><Clock3 size={14} /> Raw response</div>
+                    <div className="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-[0.12em] text-[var(--muted)]"><Clock3 size={14} /> Trusted execution metadata</div>
                     <JsonBlock value={result.raw_response} />
                   </div>
                 </div>

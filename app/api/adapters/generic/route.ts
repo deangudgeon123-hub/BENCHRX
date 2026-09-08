@@ -1,3 +1,4 @@
+import { requireAdapter, readBoundedJson, adapterConfig } from "@/lib/server/access";
 import { parsePath, setPath, deletePath, getPath, parseFixedBody } from "@/lib/server/json-path";
 import { NextResponse } from "next/server";
 import {
@@ -10,12 +11,15 @@ export const runtime = "nodejs";
 const MAX_RESPONSE_BYTES = 1_000_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 export async function POST(request: Request) {
+  const denied = requireAdapter(request);
+  if (denied) return denied;
   try {
-    const adapterUrl = new URL(request.url);
-    const targetRaw = adapterUrl.searchParams.get("target")?.trim() ?? "";
-    const requestPathRaw = adapterUrl.searchParams.get("requestPath") ?? "message";
-    const responsePathRaw = adapterUrl.searchParams.get("responsePath") ?? "response";
-    const fixedBodyRaw = adapterUrl.searchParams.get("fixedBody") ?? "{}";
+    const incoming = await readBoundedJson(request);
+    const config = adapterConfig(incoming);
+    const targetRaw = config.get("target")?.trim() ?? "";
+    const requestPathRaw = config.get("requestPath") ?? "message";
+    const responsePathRaw = config.get("responsePath") ?? "response";
+    const fixedBodyRaw = config.get("fixedBody") ?? "{}";
 
     const requestPath = parsePath(requestPathRaw, "Request field");
     const responsePath = parsePath(responsePathRaw, "Response field");
@@ -25,7 +29,6 @@ export async function POST(request: Request) {
       httpsRequiredMessage: "Custom agent endpoints must use HTTPS.",
     });
 
-    const incoming = await request.json().catch(() => ({}));
     const hasMessage =
       incoming &&
       typeof incoming === "object" &&
@@ -58,36 +61,22 @@ export async function POST(request: Request) {
       payload = { text: response.text };
     }
 
-    if (response.status < 200 || response.status >= 300) {
-      return NextResponse.json(
-        {
-          error: "Custom agent request failed",
-          upstreamStatus: response.status,
-          upstream: payload,
-        },
-        { status: response.status || 502 }
-      );
-    }
-
     const extracted = getPath(payload, responsePath);
     if (typeof extracted !== "string" || !extracted.trim()) {
       return NextResponse.json(
         {
-          error: `No usable string response found at ${responsePathRaw}`,
-          upstream: payload,
+          error: "No usable string response found at the configured path",
         },
-        { status: 502 }
+        { status: response.status >= 400 ? response.status : 502 }
       );
     }
 
     return NextResponse.json({
       response: extracted.trim(),
       provider: "generic",
-      targetHost: target.hostname,
-    });
+    }, {status: response.status >= 400 ? response.status : 200});
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Generic adapter failed";
-    console.error("Generic adapter failed", error);
-    return NextResponse.json({ error: message }, { status: 400 });
+    console.error("Connector request failed");
+    return NextResponse.json({ error: "Connector execution failed" }, { status: 502 });
   }
 }

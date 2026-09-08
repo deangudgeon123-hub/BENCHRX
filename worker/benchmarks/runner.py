@@ -1,7 +1,6 @@
 from __future__ import annotations
 import asyncio
 import contextlib
-from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -13,6 +12,7 @@ from config import AI_JUDGE_TEST_KEYS
 from judges.openai_judge import judge_with_openai
 from services.public_network import public_client
 from services.supabase import get_supabase
+from services.redaction import redact,known_secrets
 
 
 def uses_benchrx_adapter(endpoint_url: str) -> bool:
@@ -33,6 +33,7 @@ async def execute_run(run_id: str) -> dict[str, Any]:
     token=str(uuid4())
     claim=await rpc(supabase,'benchrx_claim_run',p_run_id=run_id,p_token=token,p_manifest=suite_manifest())
     if not claim:return {'status':'not_claimed','run_id':run_id}
+    secret_values=known_secrets(claim["connection"]["endpoint_url"])
     owner=asyncio.current_task()
     async def heartbeat():
         while True:
@@ -58,6 +59,8 @@ async def execute_run(run_id: str) -> dict[str, Any]:
                                  'raw_response':r['raw_response'],'execution':r['execution_metadata'],'observed':r['observed'],'evidence_complete':r['evidence_complete']}
                     else:
                         outcome=await run_test(client,claim['connection']['endpoint_url'],test)
+                        # Grade original text first; redact only evidence leaving execution.
+                        outcome["raw_response"]=redact(outcome["raw_response"],secret_values)
                         diagnostic=test['category']=='error_handling'
                         observed=_outcome_observed(test,outcome)
                         outcome_type='connector_diagnostic' if diagnostic else 'unobserved' if not observed else 'inconclusive' if outcome['passed'] is None else 'agent_pass' if outcome['passed'] else 'agent_fail'
@@ -81,8 +84,8 @@ async def execute_run(run_id: str) -> dict[str, Any]:
         renew.cancel()
         for test,outcome in pending_judges:
             try:
-                judge=await judge_with_openai(test,outcome,claim['connection'].get('description'),claim['connection'].get('category'))
-                await asyncio.to_thread(lambda: supabase.table('benchmark_shadow_judgments').upsert({'benchmark_run_id':run_id,'test_key':test['key'],'judge':judge},on_conflict='benchmark_run_id,test_key').execute())
+                judge=await judge_with_openai(test,outcome,redact(claim['connection'].get('description'),secret_values),redact(claim['connection'].get('category'),secret_values))
+                await asyncio.to_thread(lambda: supabase.table('benchmark_shadow_judgments').upsert({'benchmark_run_id':run_id,'test_key':test['key'],'judge':redact(judge,secret_values)},on_conflict='benchmark_run_id,test_key').execute())
             except Exception:
                 pass # A separate shadow error must never change completed benchmark evidence.
         return {'status':'completed','run_id':run_id,'suite_version':BENCHMARK_SUITE_VERSION,'scoring_policy_version':SCORING_POLICY_VERSION,**decision}

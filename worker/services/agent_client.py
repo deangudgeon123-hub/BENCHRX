@@ -4,7 +4,7 @@ import time
 import asyncio
 import os
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qsl, urlunparse
 
 import httpx
 
@@ -38,8 +38,6 @@ def _preview_bypass_headers(endpoint_url: str) -> dict[str, str]:
     if origin not in trusted or parsed.path.rstrip('/') not in {'/api/adapters/generic','/api/adapters/gradio','/api/adapters/storkie'}:
         return {}
 
-    return {}
-
     return {
         "x-vercel-protection-bypass": VERCEL_AUTOMATION_BYPASS_SECRET,
     }
@@ -58,8 +56,10 @@ async def send_request(
         headers = _preview_bypass_headers(endpoint_url)
         if f"{parsed.scheme}://{parsed.netloc}" in trusted and parsed.path.rstrip('/') in {'/api/adapters/generic','/api/adapters/gradio','/api/adapters/storkie'}:
             secret = os.getenv('BENCHRX_ADAPTER_SECRET','')
-            if not secret: raise ValueError('Adapter service authentication is not configured')
+            if len(secret)<32: raise ValueError('Adapter service authentication is not configured')
             headers['Authorization'] = f'Bearer {secret}'
+            payload={**payload,'_benchrx_config':dict(parse_qsl(parsed.query,keep_blank_values=True))}
+            endpoint_url=urlunparse(parsed._replace(query=''))
         async with asyncio.timeout(65):
             async with client.stream('POST',endpoint_url,json=payload,headers=headers,follow_redirects=False) as streamed:
                 chunks=[]

@@ -172,16 +172,15 @@ export default async function AgentScorecardPage({ params }: PageProps) {
   });
 
   const { data: agent } = await supabase
-    .from("agents")
+    .from("public_agents")
     .select("id,name,slug,description,category,created_at")
     .eq("slug", slug)
-    .eq("is_public", true)
     .single();
 
   if (!agent) notFound();
 
   const { data: historyData } = await supabase
-    .from("benchmark_runs")
+    .from("public_benchmark_runs")
     .select("id,status,production_score,task_success_score,reliability_score,safety_score,error_handling_score,efficiency_score,avg_latency_ms,completed_at,created_at,suite_version,scoring_policy_version,readiness_status,readiness_reasons,coverage")
     .eq("agent_id", agent.id)
     .eq("status", "completed")
@@ -195,8 +194,8 @@ export default async function AgentScorecardPage({ params }: PageProps) {
   let results: ResultRow[] = [];
   if (run) {
     const { data } = await supabase
-      .from("benchmark_results")
-      .select("id,passed,score,latency_ms,judge_reason,raw_response,test_cases(key,title,category,description)")
+      .from("public_benchmark_results")
+      .select("id,passed,score,latency_ms,judge_reason,raw_response,test_cases")
       .eq("benchmark_run_id", run.id)
       .order("created_at", { ascending: true });
 
@@ -326,7 +325,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                       <div className="flex items-center justify-between gap-4">
                         <div>
                           <p className="text-sm font-semibold text-white">Connector diagnostics</p>
-                          <p className="mt-1 text-xs leading-5 text-[var(--muted)]">BENCHRX-managed adapter checks. Reported for transparency and not included in the production score.</p>
+                          <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Connector contract checks. Excluded under the current scoring policy; legacy runs retain their recorded policy.</p>
                         </div>
                         <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-black text-[var(--muted)]">{diagnosticPassedCount}/{diagnosticResults.length} passed</span>
                       </div>
@@ -348,7 +347,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
             <div className="mt-8 grid gap-4 md:grid-cols-3">
               <div className="rounded-3xl border border-[var(--accent)]/20 bg-[var(--surface)] p-6">
                 <div className="flex items-center justify-between gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--accent)]/10 text-[var(--accent)]"><Eye size={19} /></div><span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-200">Active</span></div>
-                <h3 className="mt-5 text-lg font-black">Blind resilience</h3><p className="mt-2 text-sm leading-6 text-[var(--muted)]">Universal scored checks for task handling, reliability, safety and ambiguity. BENCHRX-managed connector diagnostics are reported separately.</p>
+                <h3 className="mt-5 text-lg font-black">Blind resilience</h3><p className="mt-2 text-sm leading-6 text-[var(--muted)]">Universal scored checks for task handling, reliability, safety and ambiguity. Connector diagnostics are reported separately.</p>
               </div>
               <div className="rounded-3xl border border-white/8 bg-[var(--surface)] p-6">
                 <div className="flex items-center justify-between gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/5 text-white"><Target size={19} /></div><span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-[var(--muted)]">Planned</span></div>
@@ -356,7 +355,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
               </div>
               <div className="rounded-3xl border border-[var(--accent)]/20 bg-[var(--surface)] p-6">
                 <div className="flex items-center justify-between gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--accent)]/10 text-[var(--accent)]"><Sparkles size={19} /></div><span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-amber-200">Shadow</span></div>
-                <h3 className="mt-5 text-lg font-black">AI evaluation</h3><p className="mt-2 text-sm leading-6 text-[var(--muted)]">GPT judge is now running on selected tests. Its result is visible below but does not affect the production score yet.</p>
+                <h3 className="mt-5 text-lg font-black">AI evaluation</h3><p className="mt-2 text-sm leading-6 text-[var(--muted)]">Shadow judgments are retained privately for calibration and do not affect this score.</p>
               </div>
             </div>
 

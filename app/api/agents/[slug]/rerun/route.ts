@@ -1,3 +1,4 @@
+import { requireOperator, readBoundedJson, appOrigin } from "@/lib/server/access";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -14,9 +15,10 @@ function getServerSupabase() {
 
 async function triggerBenchmarkWorker(runId: string) {
   const workerBaseUrl = (
-    process.env.BENCHMARK_API_URL || "https://benchrx-worker.onrender.com"
+    process.env.BENCHMARK_API_URL || ""
   ).replace(/\/$/, "");
 
+  if (!workerBaseUrl || (process.env.BENCHMARK_API_SECRET?.length ?? 0) < 32) throw new Error("Worker is not configured");
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
@@ -30,6 +32,8 @@ async function triggerBenchmarkWorker(runId: string) {
     headers,
     body: JSON.stringify({ run_id: runId }),
     cache: "no-store",
+    signal: AbortSignal.timeout(65000),
+    redirect: "error",
   });
 
   if (!response.ok) {
@@ -41,7 +45,9 @@ type RouteContext = {
   params: Promise<{ slug: string }>;
 };
 
-export async function POST(_request: Request, { params }: RouteContext) {
+export async function POST(request: Request, { params }: RouteContext) {
+  const denied = requireOperator(request);
+  if (denied) return denied;
   try {
     const { slug } = await params;
     const supabase = getServerSupabase();
@@ -104,14 +110,14 @@ export async function POST(_request: Request, { params }: RouteContext) {
       .single();
 
     if (benchmarkError || !benchmarkRun) {
-      console.error("BENCHRX rerun insert failed", benchmarkError);
+      console.error("BENCHRX request failed");
       return NextResponse.json({ error: "Could not queue another benchmark." }, { status: 500 });
     }
 
     try {
       await triggerBenchmarkWorker(benchmarkRun.id);
     } catch (error) {
-      console.error("BENCHRX rerun worker trigger failed", error);
+      console.error("BENCHRX request failed");
       return NextResponse.json(
         { error: "The run was queued, but the worker could not be started." },
         { status: 502 }
@@ -120,7 +126,7 @@ export async function POST(_request: Request, { params }: RouteContext) {
 
     return NextResponse.json({ benchmarkRun }, { status: 201 });
   } catch (error) {
-    console.error("BENCHRX rerun failed", error);
+    console.error("BENCHRX request failed");
     return NextResponse.json({ error: "Something went wrong." }, { status: 500 });
   }
 }

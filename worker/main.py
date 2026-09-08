@@ -47,7 +47,7 @@ app = FastAPI(title="BENCHRX Worker", version="0.7.0", lifespan=lifespan)
 def health() -> dict[str, str]:
     return {
         "status": "ok",
-        "version": "0.6.0",
+        "version": "0.7.0",
         "benchmark_suite": BENCHMARK_SUITE_VERSION,
         "ai_judge": "shadow",
         "ai_model": OPENAI_JUDGE_MODEL,
