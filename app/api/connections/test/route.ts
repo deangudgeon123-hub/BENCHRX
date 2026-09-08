@@ -52,22 +52,46 @@ export async function POST(request: Request) {
       headers["x-vercel-protection-bypass"] = protectionBypass;
     }
 
-    const connectorConfig=Object.fromEntries(adapter.searchParams);
-    adapter.search="";
-    const response = await fetch(adapter, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        _benchrx_config:connectorConfig,
-        message: "Reply briefly to confirm this BENCHRX connection test was received.",
-      }),
-      cache: "no-store",
-    signal: AbortSignal.timeout(65000),
-    redirect: "error",
-    });
+    const connectorConfig = Object.fromEntries(adapter.searchParams);
+    adapter.search = "";
+
+    let response: Response;
+    try {
+      response = await fetch(adapter, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          _benchrx_config: connectorConfig,
+          message: "Reply briefly to confirm this BENCHRX connection test was received.",
+        }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(65000),
+        redirect: "error",
+      });
+    } catch (error) {
+      console.error("BENCHRX connection adapter fetch failed", {
+        connectionType,
+        adapterOrigin: adapter.origin,
+        adapterPath: adapter.pathname,
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
 
     const payload = await response.json().catch(() => null);
     if (!response.ok) {
+      console.error("BENCHRX connection adapter returned error", {
+        connectionType,
+        adapterOrigin: adapter.origin,
+        adapterPath: adapter.pathname,
+        status: response.status,
+        payloadType: payload === null ? "null" : Array.isArray(payload) ? "array" : typeof payload,
+        payloadError:
+          payload && typeof payload === "object" && !Array.isArray(payload) && "error" in payload
+            ? String((payload as { error?: unknown }).error ?? "")
+            : undefined,
+      });
       return NextResponse.json({ error: "Connection test failed." }, { status: response.status });
     }
 
@@ -76,7 +100,10 @@ export async function POST(request: Request) {
       response: "Connection succeeded; response content is retained privately.",
     });
   } catch (error) {
-    console.error("BENCHRX request failed");
+    console.error("BENCHRX connection test failed", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json({ error: "Connection test failed." }, { status: 500 });
   }
 }
