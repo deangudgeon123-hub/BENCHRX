@@ -1,3 +1,4 @@
+import { parseSseComplete, extractAssistantText } from "@/lib/server/gradio-output";
 import { Client } from "@gradio/client";
 import { NextResponse } from "next/server";
 import {
@@ -179,72 +180,6 @@ function replacePlaceholders(value: unknown, message: unknown, stepResults: unkn
   return value;
 }
 
-function parseSseComplete(text: string) {
-  const blocks = text.split(/\r?\n\r?\n/);
-  let latestData: unknown = null;
-
-  for (const block of blocks) {
-    const lines = block.split(/\r?\n/);
-    const event = lines.find((line) => line.startsWith("event:"))?.slice(6).trim();
-    const dataText = lines
-      .filter((line) => line.startsWith("data:"))
-      .map((line) => line.slice(5).trimStart())
-      .join("\n");
-
-    if (!dataText) continue;
-
-    let data: unknown = dataText;
-    try {
-      data = JSON.parse(dataText);
-    } catch {
-      // Keep text payloads as text.
-    }
-
-    if (event === "error") {
-      throw new Error(typeof data === "string" ? data : "Gradio job failed.");
-    }
-    if (event === "complete") return data;
-    latestData = data;
-  }
-
-  if (latestData !== null) return latestData;
-  throw new Error("Gradio did not return a completed result.");
-}
-
-function extractText(value: unknown): string {
-  if (typeof value === "string") return value.trim();
-
-  if (Array.isArray(value)) {
-    for (let index = value.length - 1; index >= 0; index -= 1) {
-      const item = value[index];
-      if (item && typeof item === "object" && !Array.isArray(item)) {
-        const object = item as JsonObject;
-        if (object.role === "assistant" && typeof object.content === "string") {
-          return object.content.trim();
-        }
-      }
-    }
-    for (let index = value.length - 1; index >= 0; index -= 1) {
-      const text = extractText(value[index]);
-      if (text) return text;
-    }
-    return "";
-  }
-
-  if (value && typeof value === "object") {
-    const object = value as JsonObject;
-    if (typeof object.content === "string") return object.content.trim();
-    if (typeof object.text === "string") return object.text.trim();
-    const values = Object.values(object);
-    for (let index = values.length - 1; index >= 0; index -= 1) {
-      const text = extractText(values[index]);
-      if (text) return text;
-    }
-  }
-
-  return "";
-}
-
 async function callPinnedSingleStep(
   space: ValidatedHttpsTarget,
   step: WorkflowStep,
@@ -377,7 +312,7 @@ export async function POST(request: Request) {
 
     const finalStep = plan.steps[plan.finalStepIndex];
     const finalValue = selectedResults[plan.finalStepIndex];
-    const responseText = extractText(finalValue);
+    const responseText = extractAssistantText(finalValue);
 
     if (!responseText) {
       return NextResponse.json(
