@@ -1,3 +1,4 @@
+import "server-only";
 import { comparableRuns, readinessLabel } from "@/lib/measurement-view";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -163,11 +164,11 @@ function ScoreBar({
 export default async function AgentScorecardPage({ params }: PageProps) {
   const { slug } = await params;
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (!supabaseUrl || !anonKey) throw new Error("Missing Supabase public environment variables");
+  if (!supabaseUrl || !serviceKey) throw new Error("Missing server database configuration");
 
-  const supabase = createClient(supabaseUrl, anonKey, {
+  const supabase = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 

@@ -27,12 +27,12 @@ Use Node 22+ and Python 3.12+. The HTTP smoke test starts a local production ser
 
 ## End-to-end staging setup
 
-Use a separate Supabase project and preview environment. Back up any database before migrations. A fresh staging database needs migrations 001 through 005 in filename order; an existing 001 database needs 002 through 005. Do not reapply 001 to an existing database. SQL files are under `supabase/migrations`.
+Use a separate Supabase project and preview environment. Back up any database before migrations. A fresh staging database needs migrations 001 through 006 in filename order; an existing 001 database needs 002 through 006. Do not reapply 001 to an existing database. SQL files are under `supabase/migrations`.
 
 Set these **server environment variables** in the Next.js preview:
 
 - `NEXT_PUBLIC_SUPABASE_URL`: staging Supabase URL.
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`: staging anonymous key, used only for publication views.
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`: no longer used by the scorecard; browser roles cannot query the private tables or publication views after migration 006.
 - `SUPABASE_SERVICE_ROLE_KEY`: staging service key; never prefix it with `NEXT_PUBLIC_`.
 - `BENCHRX_ADMIN_TOKEN`: fresh random operator secret, at least 32 characters.
 - `BENCHRX_ADAPTER_SECRET`: a different fresh secret, at least 32 characters.
@@ -81,3 +81,11 @@ python scripts/verify-worker-sync.py --compare origin/feature/generic-connector-
 ```
 
 The expected current result is drift. After staging verification, copy the reviewed worker files to a separate deployment-sync proposal, verify hashes, and obtain explicit merge approval. Never merge the Render compatibility branch into main.
+
+## Migration 006: invoker publication views
+
+Apply `006_public_views_security_invoker.sql` once to staging after 001–005, and deploy the matching scorecard change. Migrations 001–005 are unchanged. PostgreSQL 15+ is required for `security_invoker`.
+
+The three publication views now run with caller permissions and retain their security barriers and existing projection/filter definitions. Only the server-side `service_role` may query them. The Next.js scorecard uses `SUPABASE_SERVICE_ROLE_KEY` in a server-only module; it renders the same safe projections. Do not grant private base-table access to anonymous/authenticated roles to make invoker views readable. Direct anonymous Supabase REST reads of the views are intentionally denied.
+
+Check the staging advisor again after application. These tests verify local PostgreSQL semantics; they do not establish that the migration has already been applied to staging.
