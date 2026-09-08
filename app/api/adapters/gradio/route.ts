@@ -56,7 +56,10 @@ export async function POST(request: Request) {
       clientMode: "pinned",
     });
   } catch (error) {
-    console.error("Connector request failed");
+    const safeError = error instanceof Error
+      ? { errorName: error.name, errorMessage: error.message }
+      : { errorName: typeof error, errorMessage: "Unknown connector failure" };
+    console.error("BENCHRX Gradio connector failed", safeError);
     return NextResponse.json({ error: "Connector execution failed" }, { status: 502 });
   }
 }
