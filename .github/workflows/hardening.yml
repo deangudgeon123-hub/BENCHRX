@@ -1,0 +1,29 @@
+name: Hardening regression checks
+on:
+  pull_request:
+  push:
+    branches: [feature/security-measurement-hardening, feature/gradio-workflows]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+      - run: node scripts/http-smoke.mjs
+      - run: python -m pip install -r worker/requirements-dev.txt
+      - run: python -m pytest -q
+      - run: python scripts/verify-worker-sync.py

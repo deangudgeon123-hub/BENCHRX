@@ -1,0 +1,33 @@
+{
+  "canonical_base": "c505b21550ec6e244513adab072f8ae68ff84306",
+  "files": {
+    "worker/benchmarks/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "worker/benchmarks/evaluator.py": "930acd4d534fb632a5d23fd1958020b80a28eed15dabbfbaf72788f6f961b9ad",
+    "worker/benchmarks/policy.py": "7946b12344a08b2400df33419a4b52ae4a11637e9488ba8da81254c88a24aff9",
+    "worker/benchmarks/runner.py": "ac35db6546a11f45f26bbe250354bb95027aefef666d1346cc90fbaf55ea1a0d",
+    "worker/benchmarks/scoring.py": "e45e72c2b409d92df666c65b0045f29b8dd955c0f9533b2c28f423caed202d11",
+    "worker/benchmarks/tests.py": "9bebb8d2e8d125494b09ba71552fccb238e0c89320ddcbe5baa032cfda1341e4",
+    "worker/config.py": "49bc5f7ea2216fe9991f8aacaf0c887753788f53aeb2e86759975701506bf28e",
+    "worker/judges/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "worker/judges/openai_judge.py": "38ca1d766c92479ac3e56acb984e07ab59ff518e21a934448c3d45f37045da6d",
+    "worker/main.py": "078736c639fa7bb36a0d3b9981085094160b5c43b6a1410cbb036e7f67ee34d5",
+    "worker/models/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "worker/models/payloads.py": "2d153b6454520ef10d0234897b091b7a43801b75a321dc4ddb4117cb3e33529e",
+    "worker/requirements-dev.txt": "50b704cda986819f50cc90e28d1b489072a1a52e0d6120abe01b58a97abfbd8d",
+    "worker/requirements.txt": "247b05b68d66721ce40778c6e1e67f1ee4c636e3a6414d6e64f8b49420ca2b75",
+    "worker/services/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "worker/services/agent_client.py": "5496f5de6bb752cd8833b35814c7e48780c7cf81f39e4d692d2e5edad16a58fb",
+    "worker/services/execution_guard.py": "1f2b1081e3beb5a829a9eaaac91041f583fe12d75d0c23075d4e77740d299f19",
+    "worker/services/public_network.py": "fd4e076ac48a68bdb9bbb85d330d5e489e71103b7a202952544362262b0f89d4",
+    "worker/services/redaction.py": "3460cd7165b7073251de74aab29f1d915c0ed600f48cb128ea8b4630c195e811",
+    "worker/services/supabase.py": "b9ead11189648be93e5314400bfffb57daa69327723155b88cf6204746d28c92",
+    "worker/services/worker_auth.py": "a6621de2730e58fc0403e77001d4d741bf21a779c22e49fe4406e34d2307521a",
+    "worker/tests/test_measurement.py": "24d42593b449445b687ef845c92cf21971890b6ca1603a6f04f598cc1fc960c5",
+    "worker/tests/test_network.py": "f6c5e67423bbef15d2e164c5b878d088abc63d5f2e5c5294cd4f94c968d914cd",
+    "worker/tests/test_policy.py": "f74e49a8b787cb4efced9e32bb228f51ce3cc4217b522f074875d43644d5ea76",
+    "worker/tests/test_redaction.py": "32f3c1a51e9e1eaf209570b4abacdd4d36542c070290b6b808e906fabd85e004",
+    "worker/tests/test_runner.py": "cd478ca895fc6295e07c1e192a333f2917f4c8b2c65b2b58f56e9cdb8a243eeb",
+    "worker/tests/test_shadow.py": "9188e61867e1312ca49a2ffd55209c78868ac57fc87d49da6312d692c33e4903",
+    "worker/tests/test_worker_auth.py": "3d59c1e7307630561a5615cbbe0de10370c1f067aeb28b6a5ef44bfe663ec885"
+  }
+}
