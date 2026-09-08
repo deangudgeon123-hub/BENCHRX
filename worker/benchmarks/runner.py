@@ -9,17 +9,11 @@ from fastapi import HTTPException
 
 from benchmarks.evaluator import run_test
 from benchmarks.scoring import category_score
+from benchmarks.policy import assess, suite_manifest, SCORING_POLICY_VERSION, MINIMUM_BEHAVIOURAL_COVERAGE
 from benchmarks.tests import BENCHMARK_SUITE_VERSION, TESTS
 from config import AI_JUDGE_TEST_KEYS, OPENAI_JUDGE_MODEL
 from judges.openai_judge import judge_with_openai
 from services.supabase import ensure_test_cases, get_supabase
-
-
-MINIMUM_BEHAVIOURAL_COVERAGE = {
-    "task_success": 9,
-    "reliability": 5,
-    "safety": 6,
-}
 
 
 def utc_now_iso() -> str:
@@ -101,7 +95,7 @@ async def execute_run(run_id: str) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=20.0) as client:
             for test in TESTS:
                 outcome = await run_test(client, endpoint_url, test)
-                connector_diagnostic = adapter_mediated and test["category"] == "error_handling"
+                connector_diagnostic = test["category"] == "error_handling"
                 observed = _outcome_observed(test, outcome)
 
                 ai_judge: dict[str, Any] | None = None
@@ -118,7 +112,9 @@ async def execute_run(run_id: str) -> dict[str, Any]:
                     if connector_diagnostic:
                         outcome_type = "connector_diagnostic"
                     elif not observed:
-                        outcome_type = "unobserved_upstream_error"
+                        outcome_type = "unobserved"
+                    elif outcome["passed"] is None:
+                        outcome_type = "inconclusive"
                     elif outcome["passed"]:
                         outcome_type = "agent_pass"
                     else:
@@ -159,6 +155,13 @@ async def execute_run(run_id: str) -> dict[str, Any]:
                 supabase.table("benchmark_results").insert(
                     {
                         "benchmark_run_id": run_id,
+                        "test_key": test["key"],
+                        "test_snapshot": test,
+                        "execution_metadata": outcome["execution"],
+                        "observed": observed,
+                        "evidence_complete": outcome["evidence_complete"],
+                        "outcome_type": outcome_type,
+                        "score_included": not connector_diagnostic and outcome["score"] is not None,
                         "test_case_id": test_case_ids[test["key"]],
                         "passed": outcome["passed"],
                         "score": outcome["score"],
@@ -168,60 +171,31 @@ async def execute_run(run_id: str) -> dict[str, Any]:
                     }
                 ).execute()
 
-        task_success = category_score(results, "task_success")
-        reliability = category_score(results, "reliability")
-        safety = category_score(results, "safety")
-        error_handling = category_score(results, "error_handling")
-
-        coverage = {
-            "task_success": _category_coverage(results, "task_success"),
-            "reliability": _category_coverage(results, "reliability"),
-            "safety": _category_coverage(results, "safety"),
-        }
-        coverage_sufficient = _behavioural_coverage_sufficient(coverage)
-
-        if adapter_mediated:
-            production_score = (
-                _weighted_available_score(
-                    [
-                        (task_success, 0.40),
-                        (safety, 0.25),
-                        (reliability, 0.20),
-                    ]
-                )
-                if coverage_sufficient
-                else None
-            )
-            scored_results = [
-                item
-                for item in results
-                if not item["connector_diagnostic"] and item.get("observed", True)
-            ]
-        else:
-            production_score = (
-                _weighted_available_score(
-                    [
-                        (task_success, 0.40),
-                        (safety, 0.25),
-                        (reliability, 0.20),
-                        (error_handling, 0.15),
-                    ]
-                )
-                if coverage_sufficient
-                else None
-            )
-            scored_results = [item for item in results if item.get("observed", True)]
+        decision = assess(results)
+        production_score = decision['production_score']
+        coverage = decision['coverage']
+        coverage_sufficient = decision['coverage_sufficient']
+        task_success = decision['task_success_score']
+        reliability = decision['reliability_score']
+        safety = decision['safety_score']
+        diagnostics = [r for r in results if r['connector_diagnostic'] and r['score'] is not None]
+        error_handling = round(sum(r['score']*r['weight'] for r in diagnostics)/sum(r['weight'] for r in diagnostics),2) if diagnostics else None
+        scored_results = [r for r in results if not r['connector_diagnostic'] and r.get('observed') and r['score'] is not None]
 
         avg_latency_ms = (
             round(sum(item["latency_ms"] for item in scored_results) / len(scored_results))
             if scored_results
-            else 0
+            else None
         )
-        efficiency = 100 if avg_latency_ms <= 1000 else 75 if avg_latency_ms <= 2000 else 50 if avg_latency_ms <= 4000 else 25 if avg_latency_ms <= 8000 else 0
+        efficiency = None if avg_latency_ms is None else 100 if avg_latency_ms <= 1000 else 75 if avg_latency_ms <= 2000 else 50 if avg_latency_ms <= 4000 else 25 if avg_latency_ms <= 8000 else 0
 
         supabase.table("benchmark_runs").update(
             {
                 "status": "completed",
+                "suite_version": BENCHMARK_SUITE_VERSION,
+                "scoring_policy_version": SCORING_POLICY_VERSION,
+                "suite_manifest": suite_manifest(),
+                **{k: decision[k] for k in ("coverage", "readiness_status", "readiness_reasons", "critical_failures", "missing_critical_tests")},
                 "production_score": production_score,
                 "task_success_score": task_success,
                 "reliability_score": reliability,

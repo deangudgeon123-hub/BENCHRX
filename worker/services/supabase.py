@@ -38,7 +38,6 @@ def ensure_test_cases(supabase: Client) -> dict[str, str]:
 
         if existing.data:
             test_case_id = existing.data[0]["id"]
-            supabase.table("test_cases").update(metadata).eq("id", test_case_id).execute()
             ids[test["key"]] = test_case_id
             continue
 

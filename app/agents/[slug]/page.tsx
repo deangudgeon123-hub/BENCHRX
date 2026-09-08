@@ -1,3 +1,4 @@
+import { comparableRuns, readinessLabel } from "@/lib/measurement-view";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
@@ -54,6 +55,11 @@ type ResultRow = {
 };
 
 type RunRow = {
+  suite_version: string | null;
+  scoring_policy_version: string | null;
+  readiness_status: string | null;
+  readiness_reasons: string[] | null;
+  coverage: Record<string, {observed: number; total: number; minimum: number}> | null;
   id: string;
   status: string;
   production_score: number | null;
@@ -66,19 +72,6 @@ type RunRow = {
   completed_at: string | null;
   created_at: string;
 };
-
-const MINIMUM_COVERAGE: Record<string, number> = {
-  task_success: 9,
-  reliability: 5,
-  safety: 6,
-};
-
-function scoreLabel(score: number) {
-  if (score >= 90) return "Production ready";
-  if (score >= 75) return "Strong";
-  if (score >= 60) return "Needs review";
-  return "High risk";
-}
 
 function scoreSummary(score: number) {
   if (score >= 90) return "Strong performance across the current BENCHRX blind resilience checks.";
@@ -111,12 +104,12 @@ function outcomeType(result: ResultRow) {
 }
 
 function isConnectorDiagnostic(result: ResultRow) {
-  return outcomeType(result) === "connector_diagnostic" || result.raw_response?.benchrx_diagnostic === true;
+  return getTestCase(result)?.category === "error_handling" || outcomeType(result) === "connector_diagnostic" || result.raw_response?.benchrx_diagnostic === true;
 }
 
 function isUnobserved(result: ResultRow) {
   if (outcomeType(result) === "unobserved_upstream_error") return true;
-  return result.raw_response?.score_included === false && !isConnectorDiagnostic(result);
+  return ["unobserved", "inconclusive"].includes(outcomeType(result) ?? "") || (result.raw_response?.score_included === false && !isConnectorDiagnostic(result));
 }
 
 function isObservedBehaviour(result: ResultRow) {
@@ -142,9 +135,9 @@ function ScoreBar({
   value: number | null;
   observed: number;
   total: number;
-  minimum: number;
+  minimum?: number;
 }) {
-  const sufficient = observed >= minimum;
+  const sufficient = minimum === undefined || observed >= minimum;
   const score = value === null ? null : Math.max(0, Math.min(100, Number(value)));
 
   return (
@@ -152,7 +145,7 @@ function ScoreBar({
       <div className="mb-2 flex items-start justify-between gap-4 text-sm">
         <div>
           <span className="font-semibold text-white">{label}</span>
-          <p className="mt-1 text-xs text-[var(--muted)]">{observed}/{total} observed · minimum {minimum}</p>
+          <p className="mt-1 text-xs text-[var(--muted)]">{observed}/{total} observed{minimum === undefined ? " · legacy policy" : ` · minimum ${minimum}`}</p>
         </div>
         {sufficient && score !== null ? (
           <span className="font-black tabular-nums text-white">{score.toFixed(0)}</span>
@@ -189,7 +182,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
 
   const { data: historyData } = await supabase
     .from("benchmark_runs")
-    .select("id,status,production_score,task_success_score,reliability_score,safety_score,error_handling_score,efficiency_score,avg_latency_ms,completed_at,created_at")
+    .select("id,status,production_score,task_success_score,reliability_score,safety_score,error_handling_score,efficiency_score,avg_latency_ms,completed_at,created_at,suite_version,scoring_policy_version,readiness_status,readiness_reasons,coverage")
     .eq("agent_id", agent.id)
     .eq("status", "completed")
     .order("completed_at", { ascending: false })
@@ -216,21 +209,13 @@ export default async function AgentScorecardPage({ params }: PageProps) {
   const passedCount = observedResults.filter((result) => result.passed).length;
   const failedCount = observedResults.length - passedCount;
   const diagnosticPassedCount = diagnosticResults.filter((result) => result.passed).length;
-  const taskCoverage = categoryCoverage(results, "task_success");
-  const reliabilityCoverage = categoryCoverage(results, "reliability");
-  const safetyCoverage = categoryCoverage(results, "safety");
-  const coverageSufficient =
-    taskCoverage.observed >= MINIMUM_COVERAGE.task_success &&
-    reliabilityCoverage.observed >= MINIMUM_COVERAGE.reliability &&
-    safetyCoverage.observed >= MINIMUM_COVERAGE.safety;
-  const productionScore = run?.production_score === null || !coverageSufficient ? null : Number(run.production_score);
-  const previousScore = previousRun?.production_score === null || previousRun?.production_score === undefined ? null : Number(previousRun.production_score);
-  const scoreDelta = productionScore === null || previousScore === null ? null : productionScore - previousScore;
-  const insufficientCategories = [
-    taskCoverage.observed < MINIMUM_COVERAGE.task_success ? `Task success ${taskCoverage.observed}/${taskCoverage.total} observed` : null,
-    reliabilityCoverage.observed < MINIMUM_COVERAGE.reliability ? `Reliability ${reliabilityCoverage.observed}/${reliabilityCoverage.total} observed` : null,
-    safetyCoverage.observed < MINIMUM_COVERAGE.safety ? `Safety ${safetyCoverage.observed}/${safetyCoverage.total} observed` : null,
-  ].filter(Boolean) as string[];
+  const taskCoverage = run?.coverage?.task_success ?? categoryCoverage(results, "task_success");
+  const reliabilityCoverage = run?.coverage?.reliability ?? categoryCoverage(results, "reliability");
+  const safetyCoverage = run?.coverage?.safety ?? categoryCoverage(results, "safety");
+  const productionScore = run?.production_score == null ? null : Number(run.production_score);
+  const previousScore = previousRun?.production_score == null ? null : Number(previousRun.production_score);
+  const scoreDelta = comparableRuns(run, previousRun) && productionScore !== null && previousScore !== null ? productionScore - previousScore : null;
+  const insufficientCategories = run?.readiness_reasons ?? ["Evidence was not sufficient under this run's recorded policy."];
   const aiResults = results
     .map((result) => ({
       result,
@@ -262,7 +247,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
             {run ? (
               <div className="rounded-2xl border border-white/8 bg-white/[0.025] px-4 py-3 text-sm text-[var(--muted)]">
                 <p className="text-xs font-bold uppercase tracking-[0.14em]">Last verified</p>
-                <p className="mt-1 font-bold text-white">{formatDate(run.completed_at)}</p>
+                <p className="mt-1 font-bold text-white">{formatDate(run.completed_at)}</p><p className="mt-1 text-xs">Suite {run.suite_version ?? "legacy-unknown"} · {run.scoring_policy_version ?? "legacy-unversioned"}</p>
               </div>
             ) : null}
             <RerunBenchmarkButton slug={agent.slug} />
@@ -278,10 +263,10 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                 {productionScore === null ? <CircleGauge className="mt-0.5 shrink-0 text-amber-300" size={21} /> : <CheckCircle2 className="mt-0.5 shrink-0 text-emerald-300" size={21} />}
                 <div>
                   <p className={`font-black ${productionScore === null ? "text-amber-50" : "text-emerald-50"}`}>{productionScore === null ? "Benchmark complete — score withheld" : "Benchmark ready"}</p>
-                  <p className={`mt-1 text-sm leading-6 ${productionScore === null ? "text-amber-100/70" : "text-emerald-100/70"}`}>{productionScore === null ? `Insufficient behavioural coverage: ${insufficientCategories.join("; ")}.` : "Latest blind resilience run completed with sufficient behavioural coverage."}</p>
+                  <p className={`mt-1 text-sm leading-6 ${productionScore === null ? "text-amber-100/70" : "text-emerald-100/70"}`}>{productionScore === null ? `Insufficient behavioural coverage: ${insufficientCategories.join("; ")}.` : readinessLabel(run, productionScore)}</p>
                 </div>
               </div>
-              <div className={`flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] ${productionScore === null ? "text-amber-100/80" : "text-emerald-100/80"}`}><ShieldCheck size={14} /> {productionScore === null ? "Insufficient evidence" : "Verified result"}</div>
+              <div className={`flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] ${productionScore === null ? "text-amber-100/80" : "text-emerald-100/80"}`}><ShieldCheck size={14} /> {productionScore === null ? "Insufficient evidence" : readinessLabel(run, productionScore)}</div>
             </div>
 
             <div className="mt-6 grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
@@ -302,7 +287,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                         <span className="mb-3 text-xl font-bold text-[var(--muted)]">/100</span>
                       </div>
                       <div className="mt-5 flex flex-wrap items-center gap-3">
-                        <span className="rounded-full border border-[var(--accent)]/20 bg-[var(--accent)]/10 px-3 py-1.5 text-sm font-black text-[var(--accent)]">{scoreLabel(productionScore)}</span>
+                        <span className="rounded-full border border-[var(--accent)]/20 bg-[var(--accent)]/10 px-3 py-1.5 text-sm font-black text-[var(--accent)]">{readinessLabel(run, productionScore)}</span>
                         {scoreDelta !== null ? (
                           <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-sm font-black ${scoreDelta > 0 ? "bg-emerald-500/10 text-emerald-200" : scoreDelta < 0 ? "bg-red-500/10 text-red-200" : "bg-white/5 text-[var(--muted)]"}`}>
                             {scoreDelta > 0 ? <TrendingUp size={15} /> : scoreDelta < 0 ? <TrendingDown size={15} /> : null}
@@ -333,9 +318,9 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                   <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-200">Active</span>
                 </div>
                 <div className="mt-7 space-y-6">
-                  <ScoreBar label="Task success" value={run.task_success_score} observed={taskCoverage.observed} total={taskCoverage.total} minimum={MINIMUM_COVERAGE.task_success} />
-                  <ScoreBar label="Reliability" value={run.reliability_score} observed={reliabilityCoverage.observed} total={reliabilityCoverage.total} minimum={MINIMUM_COVERAGE.reliability} />
-                  <ScoreBar label="Safety" value={run.safety_score} observed={safetyCoverage.observed} total={safetyCoverage.total} minimum={MINIMUM_COVERAGE.safety} />
+                  <ScoreBar label="Task success" value={run.task_success_score} observed={taskCoverage.observed} total={taskCoverage.total} minimum={run.coverage?.task_success?.minimum} />
+                  <ScoreBar label="Reliability" value={run.reliability_score} observed={reliabilityCoverage.observed} total={reliabilityCoverage.total} minimum={run.coverage?.reliability?.minimum} />
+                  <ScoreBar label="Safety" value={run.safety_score} observed={safetyCoverage.observed} total={safetyCoverage.total} minimum={run.coverage?.safety?.minimum} />
                   {diagnosticResults.length > 0 ? (
                     <div className="rounded-2xl border border-white/8 bg-white/[0.025] p-4">
                       <div className="flex items-center justify-between gap-4">
@@ -353,7 +338,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                     </div>
                   )}
                   <div>
-                    <div className="mb-2 flex items-center justify-between gap-4 text-sm"><span className="font-semibold text-white">Efficiency</span><span className="font-black tabular-nums text-white">{Number(run.efficiency_score ?? 0).toFixed(0)}</span></div>
+                    <div className="mb-2 flex items-center justify-between gap-4 text-sm"><span className="font-semibold text-white">Efficiency</span><span className="font-black tabular-nums text-white">{run.efficiency_score === null ? "Unobserved" : Number(run.efficiency_score).toFixed(0)}</span></div>
                     <div className="h-2 overflow-hidden rounded-full bg-white/8"><div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${Math.max(0, Math.min(100, Number(run.efficiency_score ?? 0)))}%` }} /></div>
                   </div>
                 </div>
@@ -473,12 +458,12 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                   const score = item.production_score === null ? null : Number(item.production_score);
                   const next = history[index + 1];
                   const nextScore = next?.production_score === null || next?.production_score === undefined ? null : Number(next.production_score);
-                  const delta = score === null || nextScore === null ? null : score - nextScore;
+                  const delta = comparableRuns(item, next) && score !== null && nextScore !== null ? score - nextScore : null;
                   return (
                     <div key={item.id} className={`flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6 ${index !== history.length - 1 ? "border-b border-white/8" : ""}`}>
                       <div className="flex items-center gap-3">
                         <div className={`flex h-9 w-9 items-center justify-center rounded-full ${index === 0 ? "bg-[var(--accent)]/10 text-[var(--accent)]" : "bg-white/5 text-[var(--muted)]"}`}><Clock3 size={17} /></div>
-                        <div><p className="font-black text-white">{index === 0 ? "Latest run" : `Previous run ${index}`}</p><p className="mt-1 text-xs text-[var(--muted)]">{formatDate(item.completed_at)}</p></div>
+                        <div><p className="font-black text-white">{index === 0 ? "Latest run" : `Previous run ${index}`}</p><p className="mt-1 text-xs text-[var(--muted)]">{formatDate(item.completed_at)} · Suite {item.suite_version ?? "legacy-unknown"} · {item.scoring_policy_version ?? "legacy-unversioned"}{next && !comparableRuns(item, next) ? " · Not comparable with previous run" : ""}</p></div>
                       </div>
                       <div className="flex items-center gap-5 pl-12 sm:pl-0">
                         {delta !== null ? <span className={`text-sm font-black ${delta > 0 ? "text-emerald-300" : delta < 0 ? "text-red-300" : "text-[var(--muted)]"}`}>{delta > 0 ? "+" : ""}{delta.toFixed(0)}</span> : null}
