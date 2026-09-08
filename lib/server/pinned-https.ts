@@ -1,3 +1,4 @@
+import ipaddr from "ipaddr.js";
 import { resolve4, resolve6 } from "node:dns/promises";
 import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
@@ -23,45 +24,19 @@ export type PinnedResponse = {
   text: string;
 };
 
-function isPrivateIpv4(ip: string) {
-  const octets = ip.split(".").map(Number);
-  if (octets.length !== 4 || octets.some((value) => Number.isNaN(value))) return true;
-
-  const [a, b] = octets;
-  return (
-    a === 0 ||
-    a === 10 ||
-    a === 127 ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    (a === 100 && b >= 64 && b <= 127) ||
-    a >= 224
-  );
+export function isPublicIp(ip: string): boolean {
+  try {
+    const address = ipaddr.parse(ip);
+    // Mapped/tunnel/reserved IPv6 ranges are intentionally unsupported.
+    return address.range() === "unicast";
+  } catch { return false; }
 }
 
-function isPrivateIpv6(ip: string) {
-  const normalized = ip.toLowerCase();
-  return (
-    normalized === "::" ||
-    normalized === "::1" ||
-    normalized.startsWith("fc") ||
-    normalized.startsWith("fd") ||
-    normalized.startsWith("fe8") ||
-    normalized.startsWith("fe9") ||
-    normalized.startsWith("fea") ||
-    normalized.startsWith("feb") ||
-    normalized.startsWith("::ffff:127.") ||
-    normalized.startsWith("::ffff:10.") ||
-    normalized.startsWith("::ffff:192.168.")
-  );
-}
-
-function isPrivateIp(ip: string) {
-  const version = isIP(ip);
-  if (version === 4) return isPrivateIpv4(ip);
-  if (version === 6) return isPrivateIpv6(ip);
-  return true;
+async function boundedDns<T>(operation: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try { return await Promise.race([operation, new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error("DNS resolution timed out.")), 5000);
+  })]); } finally { if (timer) clearTimeout(timer); }
 }
 
 export async function validateAndPinPublicHttpsUrl(
@@ -78,7 +53,7 @@ export async function validateAndPinPublicHttpsUrl(
     throw new Error(options.invalidUrlMessage);
   }
 
-  if (target.protocol !== "https:") {
+  if (target.protocol !== "https:" || (target.port && target.port !== "443") || target.hash) {
     throw new Error(options.httpsRequiredMessage);
   }
 
@@ -86,7 +61,7 @@ export async function validateAndPinPublicHttpsUrl(
     throw new Error("Credentials are not allowed in the target URL.");
   }
 
-  const hostname = target.hostname.toLowerCase();
+  const hostname = target.hostname.toLowerCase().replace(/^\[|\]$/g, "");
   if (
     hostname === "localhost" ||
     hostname.endsWith(".localhost") ||
@@ -98,7 +73,7 @@ export async function validateAndPinPublicHttpsUrl(
 
   const literalFamily = isIP(hostname);
   if (literalFamily) {
-    if (isPrivateIp(hostname)) {
+    if (!isPublicIp(hostname)) {
       throw new Error("Private or local endpoints are not allowed.");
     }
     return {
@@ -111,19 +86,19 @@ export async function validateAndPinPublicHttpsUrl(
 
   const addresses: Array<{ address: string; family: 4 | 6 }> = [];
   try {
-    const ipv4 = await resolve4(hostname);
+    const ipv4 = await boundedDns(resolve4(hostname));
     addresses.push(...ipv4.map((address) => ({ address, family: 4 as const })));
   } catch {
     // IPv6-only hosts are handled below.
   }
   try {
-    const ipv6 = await resolve6(hostname);
+    const ipv6 = await boundedDns(resolve6(hostname));
     addresses.push(...ipv6.map((address) => ({ address, family: 6 as const })));
   } catch {
     // IPv4-only hosts are handled above.
   }
 
-  if (!addresses.length || addresses.some(({ address }) => isPrivateIp(address))) {
+  if (!addresses.length || addresses.some(({ address }) => !isPublicIp(address))) {
     throw new Error("Private or local endpoints are not allowed.");
   }
 
@@ -142,10 +117,12 @@ export async function pinnedHttpsRequest(
 ): Promise<PinnedResponse> {
   return new Promise((resolve, reject) => {
     let settled = false;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
 
     const finishReject = (error: Error) => {
       if (settled) return;
       settled = true;
+      if (deadline) clearTimeout(deadline);
       reject(error);
     };
 
@@ -181,6 +158,8 @@ export async function pinnedHttpsRequest(
         const chunks: Buffer[] = [];
         let totalBytes = 0;
 
+        response.on("aborted", () => finishReject(new Error("Upstream response aborted.")));
+        response.on("error", finishReject);
         response.on("data", (chunk: Buffer | string) => {
           const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
           totalBytes += buffer.byteLength;
@@ -194,6 +173,7 @@ export async function pinnedHttpsRequest(
         response.on("end", () => {
           if (settled) return;
           settled = true;
+          if (deadline) clearTimeout(deadline);
           resolve({
             status: response.statusCode ?? 0,
             headers: response.headers,
@@ -203,6 +183,7 @@ export async function pinnedHttpsRequest(
       }
     );
 
+    deadline = setTimeout(() => req.destroy(new Error("Upstream absolute deadline exceeded.")), options.timeoutMs);
     req.setTimeout(options.timeoutMs, () => {
       req.destroy(new Error("Upstream request timed out."));
     });

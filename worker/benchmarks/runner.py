@@ -13,6 +13,7 @@ from benchmarks.policy import assess, suite_manifest, SCORING_POLICY_VERSION, MI
 from benchmarks.tests import BENCHMARK_SUITE_VERSION, TESTS
 from config import AI_JUDGE_TEST_KEYS, OPENAI_JUDGE_MODEL
 from judges.openai_judge import judge_with_openai
+from services.public_network import public_client
 from services.supabase import ensure_test_cases, get_supabase
 
 
@@ -92,7 +93,7 @@ async def execute_run(run_id: str) -> dict[str, Any]:
         test_case_ids = ensure_test_cases(supabase)
         results: list[dict[str, Any]] = []
 
-        async with httpx.AsyncClient(timeout=20.0) as client:
+        async with public_client() as client:
             for test in TESTS:
                 outcome = await run_test(client, endpoint_url, test)
                 connector_diagnostic = test["category"] == "error_handling"
