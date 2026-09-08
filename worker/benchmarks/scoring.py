@@ -7,7 +7,7 @@ def category_score(results: list[dict[str, Any]], category: str) -> float | None
     selected = [
         item
         for item in results
-        if item["category"] == category and item.get("observed", True)
+        if item["category"] == category and item.get("observed", False) and item.get("score") is not None
     ]
     if not selected:
         return None

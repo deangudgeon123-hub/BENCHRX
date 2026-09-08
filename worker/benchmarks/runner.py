@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import HTTPException
@@ -26,48 +27,13 @@ def utc_now_iso() -> str:
 
 
 def uses_benchrx_adapter(endpoint_url: str) -> bool:
-    return "/api/adapters/" in endpoint_url
-
-
-def _collect_http_statuses(value: Any) -> list[int]:
-    statuses: list[int] = []
-    if isinstance(value, dict):
-        status = value.get("http_status")
-        if isinstance(status, int):
-            statuses.append(status)
-        for child in value.values():
-            statuses.extend(_collect_http_statuses(child))
-    elif isinstance(value, list):
-        for child in value:
-            statuses.extend(_collect_http_statuses(child))
-    return statuses
-
-
-def _has_transport_error(value: Any) -> bool:
-    if not isinstance(value, dict):
-        return False
-    for key in ("error", "first_error", "second_error"):
-        if value.get(key):
-            return True
-    return any(_has_transport_error(child) for child in value.values())
+    return urlparse(endpoint_url).path.rstrip("/") in {"/api/adapters/generic", "/api/adapters/gradio", "/api/adapters/storkie"}
 
 
 def _outcome_observed(test: dict[str, Any], outcome: dict[str, Any]) -> bool:
-    # Malformed-input checks describe connector/native contract behaviour rather
-    # than the agent's conversational behaviour, so preserve their existing
-    # diagnostic semantics.
-    if test["category"] == "error_handling":
-        return True
-
-    raw_response = outcome.get("raw_response")
-    if _has_transport_error(raw_response):
-        return False
-
-    statuses = _collect_http_statuses(raw_response)
-    if statuses and any(not (200 <= status < 300) for status in statuses):
-        return False
-
-    return True
+    # Trust only request-operation metadata. Never inspect raw_response/body recursively.
+    attempts = outcome.get("execution", {}).get("attempts", [])
+    return bool(attempts) and any(a.get("response_observed") is True for a in attempts)
 
 
 def _weighted_available_score(values: list[tuple[float | None, float]]) -> float:
@@ -161,6 +127,8 @@ async def execute_run(run_id: str) -> dict[str, Any]:
                     raw_response = {
                         **raw_response,
                         "benchrx_suite_version": BENCHMARK_SUITE_VERSION,
+                        "execution": outcome["execution"],
+                        "evidence_complete": outcome["evidence_complete"],
                         "outcome_type": outcome_type,
                         "observed": observed,
                     }
