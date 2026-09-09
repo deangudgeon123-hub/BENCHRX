@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {discoverGradio, parseGradioSchema, singleStepRecipes} from '../lib/server/connectors/gradio-discovery.ts';
+import {discoverGradio, parseGradioSchema, singleStepRecipes, structuredInputRecipes} from '../lib/server/connectors/gradio-discovery.ts';
 import type {ConnectorIO} from '../lib/server/connectors/interface.ts';
 const param = (name: string, type = 'string', component = 'Textbox') => ({parameter_name: name, type: {type}, component});
 const endpoint = {parameters: [param('message')], returns: [param('answer')]};
@@ -27,18 +27,18 @@ test('multi-input agents can use declared safe UI control defaults without inven
   const withDefault = (p: Record<string, unknown>, value: unknown) => ({...p, parameter_has_default: true, parameter_default: value});
   const agentflow = {named_endpoints: {'/solve_problem_gradio': {
     parameters: [
-      withDefault(param('user_query'), 'How many r letters are in the word strawberry?'),
+      param('user_query'),
       withDefault(param('max_steps', 'number', 'Slider'), 5),
       withDefault(param('max_time', 'number', 'Slider'), 240),
       withDefault(param('llm_model_engine', 'string', 'Textbox'), 'vllm-AgentFlow/agentflow-planner-7b'),
-      withDefault(param('enabled_tools', 'array', 'CheckboxGroup'), ['Base_Generator_Tool', 'Python_Coder_Tool', 'Google_Search_Tool', 'Wikipedia_Search_Tool', 'Web_Search_Tool']),
+      withDefault(param('enabled_tools', 'array', 'CheckboxGroup'), ['Base_Generator_Tool', 'Python_Coder_Tool']),
     ],
     returns: [param('Step-wise Problem-Solving Output', 'array', 'Chatbot')],
   }}};
   const d = await discoverGradio('https://demo.hf.space', ioFor(agentflow));
   assert.equal(d.status, 'proposed'); assert.equal(d.recipes.length, 1);
   assert.equal(d.recipes[0].config.apiName, 'solve_problem_gradio');
-  assert.deepEqual(JSON.parse(d.recipes[0].config.inputs), ['{{message}}', 5, 240, 'vllm-AgentFlow/agentflow-planner-7b', ['Base_Generator_Tool', 'Python_Coder_Tool', 'Google_Search_Tool', 'Wikipedia_Search_Tool', 'Web_Search_Tool']]);
+  assert.deepEqual(JSON.parse(d.recipes[0].config.inputs), ['{{message}}', 5, 240, 'vllm-AgentFlow/agentflow-planner-7b', ['Base_Generator_Tool', 'Python_Coder_Tool']]);
   assert.equal(d.recipes[0].config.outputIndex, '0');
 });
 test('agent-like endpoints can recover conversational array outputs when Gradio omits the Chatbot component', async () => {
@@ -58,7 +58,31 @@ test('agent-like endpoints can recover conversational array outputs when Gradio 
   assert.equal(d.recipes[0].config.apiName, 'solve_problem_gradio');
   assert.equal(d.recipes[0].config.outputIndex, '0');
 });
-test('discovery does not expose schema examples, descriptions or sensitive free-form string defaults', async () => {
+test('structured input endpoints produce editable templates instead of invented fixed values', async () => {
+  const travel = parseGradioSchema({named_endpoints: {'/plan_trip': {
+    parameters: [param('origin'), param('destination'), param('month'), param('preferences')],
+    returns: [param('value_11')],
+  }}});
+  const recipes = structuredInputRecipes('https://travel.hf.space', travel);
+  assert.equal(recipes.length, 1);
+  assert.equal(recipes[0].config.apiName, 'plan_trip');
+  assert.deepEqual(JSON.parse(recipes[0].config.inputs), [
+    '<REQUIRED:origin>', '<REQUIRED:destination>', '<REQUIRED:month>', '{{message}}',
+  ]);
+  const d = await discoverGradio('https://demo.hf.space', ioFor({named_endpoints: {'/plan_trip': {
+    parameters: [param('origin'), param('destination'), param('month'), param('preferences')],
+    returns: [param('value_11')],
+  }}}));
+  assert.equal(d.status, 'proposed');
+  assert.match(d.message, /Fill every REQUIRED placeholder/);
+});
+test('structured input discovery refuses ambiguous prompt targets', () => {
+  const ambiguous = parseGradioSchema({named_endpoints: {'/run': {
+    parameters: [param('task'), param('instructions'), param('region')], returns: [param('answer')],
+  }}});
+  assert.deepEqual(structuredInputRecipes('https://demo.hf.space', ambiguous), []);
+});
+test('discovery does not expose schema examples, descriptions or free-form string defaults', async () => {
   const d = await discoverGradio('https://demo.hf.space', ioFor({named_endpoints: {'/chat': {...endpoint, description: 'secret-value', parameters: [param('message'), {...param('api_key'), parameter_has_default: true, parameter_default: 'secret-value'}]}}}));
   assert.equal(JSON.stringify(d).includes('secret-value'), false); assert.equal(d.status, 'manual_required');
 });
