@@ -12,30 +12,41 @@ function chatbotBridgeRecipe(
   second: GradioEndpoint,
   firstOutputs: unknown[],
   secondInputs: unknown[],
+  firstInputs: unknown[],
+  secondOutputs: unknown[],
+  components: unknown,
   outputIndex: (e: GradioEndpoint) => number,
 ): ConnectorRecipe | null {
   // Some Gradio apps expose only the visible textbox return from log_user_message,
   // while their dependency graph also wires hidden stored-message/chatbot/session values
   // into the agent step. When the graph proves exactly one shared component between
-  // those steps, use the exposed messages API directly rather than guessing hidden
-  // positional arguments.
+  // those steps, execute their declared order with State wire slots identified by type.
   if (first.inputCount !== 1 || !stringParam(first.inputs[0])) return null;
   if (second.inputCount !== 1 || !arrayParam(second.inputs[0])) return null;
   const linkedComponents = [...new Set(firstOutputs.filter(id => secondInputs.includes(id)))];
   if (linkedComponents.length !== 1) return null;
   const finalOutput = outputIndex(second);
   if (finalOutput < 0) return null;
-  // Gradio's messages-format Chatbot schema commonly exposes nullable metadata/options
-  // as part of the message object. Supplying the complete public shape avoids strict
-  // input validation rejecting an otherwise valid user turn.
-  const inputs = JSON.stringify([[
-    {role: 'user', metadata: null, content: '{{message}}', options: null},
-  ]]);
-  parsePlan(inputs, second.apiName, String(finalOutput));
+  // /info omits State components, but raw /call still validates the full wire arity.
+  // Null occupies a State slot only: Gradio substitutes the value held by this session.
+  if (!Array.isArray(components)) return null;
+  const states = new Set(components.map(obj).filter(c => c.type === 'state').map(c => c.id));
+  const visibleFirst = firstInputs.filter(id => !states.has(id));
+  const visibleSecond = secondInputs.filter(id => !states.has(id));
+  if (visibleFirst.length !== 1 || visibleSecond.length !== 1 || !states.has(linkedComponents[0])) return null;
+  const firstOutputIndex = firstOutputs.findIndex(id => !states.has(id));
+  const visibleOutputs = secondOutputs.filter(id => !states.has(id));
+  const finalWireIndex = secondOutputs.indexOf(visibleOutputs[finalOutput]);
+  if (firstOutputIndex < 0 || finalWireIndex < 0) return null;
+  const inputs = JSON.stringify({steps: [
+    {apiName: first.apiName, inputs: firstInputs.map(id => states.has(id) ? null : '{{message}}'), outputIndex: firstOutputIndex},
+    {apiName: second.apiName, inputs: secondInputs.map(id => states.has(id) ? null : []), outputIndex: finalWireIndex},
+  ], finalStep: 1});
+  parsePlan(inputs, second.apiName, String(finalWireIndex));
   return {
     provider: 'gradio',
     label: '/log_user_message → /interact_with_agent (Chatbot bridge)',
-    config: {space: spaceUrl, apiName: second.apiName, inputs, outputIndex: String(finalOutput)},
+    config: {space: spaceUrl, apiName: second.apiName, inputs, outputIndex: String(finalWireIndex)},
   };
 }
 
@@ -56,7 +67,7 @@ export function statefulRecipes(spaceUrl: string, endpoints: GradioEndpoint[], r
   if (!Array.isArray(aIn) || !Array.isArray(aOut) || !Array.isArray(bIn) || !Array.isArray(bOut) ||
       [...aIn, ...aOut, ...bIn, ...bOut].some(id => !Number.isSafeInteger(id))) return [];
 
-  const bridge = chatbotBridgeRecipe(spaceUrl, first, second, aOut, bIn, outputIndex);
+  const bridge = chatbotBridgeRecipe(spaceUrl, first, second, aOut, bIn, aIn, bOut, config.components, outputIndex);
 
   // Hidden component inputs/outputs can make API-schema counts differ from dependency-graph counts.
   // Use the explicit Chatbot bridge above when that exact declared link is present.

@@ -28,8 +28,8 @@ test('auto-discovered two-step chain forwards actual upstream history, not liter
   const bodies: {data: unknown[]; session_hash: string}[] = [];
   const values = await executeGradioPlan(target, plan, 'fixture message', async (t, o) => {
     if (o.method === 'POST') {bodies.push(JSON.parse(o.body!)); return {status: 200, headers: {}, text: '{"event_id":"evt"}'};}
-    const result = t.url.pathname.includes('log_user_message') ? ['', state] : [[['fixture message', 'Final answer']]];
-    return {status: 200, headers: {}, text: `event: complete\ndata: ${JSON.stringify(result)}\n\n`};
+    const result = bodies.length === 1 ? ['', state] : [[['fixture message', 'Final answer']]];
+    return {status: 200, headers: {}, text: `data: ${JSON.stringify({msg: 'process_completed', event_id: 'evt', success: true, output: {data: result}})}\n\n`};
   });
   assert.deepEqual(bodies[0].data, ['fixture message', []]);
   assert.deepEqual(bodies[1].data, [state]); assert.equal(bodies[0].session_hash, bodies[1].session_hash);
@@ -43,7 +43,7 @@ test('declared hidden Gradio fan-in can bridge a one-input messages API safely',
   // The public API exposes only one input/output per endpoint, while Gradio's UI graph
   // includes hidden upload/chat/session components. Exactly one component (stored messages)
   // is shared from the logging step into the agent step.
-  const hiddenGraph = {dependencies: [
+  const hiddenGraph = {components: [3, 4, 6, 7].map(id => ({id, type: 'state'})), dependencies: [
     {id: 20, api_name: 'log_user_message', inputs: [1, 7], outputs: [3, 1, 4]},
     {id: 21, api_name: 'interact_with_agent', inputs: [3, 5, 6], outputs: [5], trigger_after: 20},
   ]};
@@ -52,10 +52,12 @@ test('declared hidden Gradio fan-in can bridge a one-input messages API safely',
   assert.equal(discovery.recipes[0].label, '/log_user_message → /interact_with_agent (Chatbot bridge)');
   const recipe = discovery.recipes[0].config;
   const plan = parsePlan(recipe.inputs, recipe.apiName, recipe.outputIndex);
-  assert.equal(plan.steps.length, 1); assert.equal(plan.steps[0].apiName, 'interact_with_agent');
-  const template = [[{role: 'user', metadata: null, content: '{{message}}', options: null}]];
-  assert.deepEqual(plan.steps[0].inputs, template);
-  assert.deepEqual(replacePlaceholders(plan.steps[0].inputs, 'BENCHRX_GATEWAY_OK', []), [[{role: 'user', metadata: null, content: 'BENCHRX_GATEWAY_OK', options: null}]]);
+  assert.equal(plan.steps.length, 2);
+  assert.equal(plan.steps[0].apiName, 'log_user_message');
+  assert.equal(plan.steps[1].apiName, 'interact_with_agent');
+  assert.deepEqual(plan.steps[0].inputs, ['{{message}}', null]);
+  assert.deepEqual(plan.steps[1].inputs, [null, [], null]);
+  assert.deepEqual(replacePlaceholders(plan.steps[0].inputs, 'BENCHRX_GATEWAY_OK', []), ['BENCHRX_GATEWAY_OK', null]);
 });
 test('hidden Gradio bridge refuses ambiguous shared component links', async () => {
   const liveLikeSchema = {named_endpoints: {

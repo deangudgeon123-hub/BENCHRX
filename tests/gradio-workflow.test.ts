@@ -7,7 +7,7 @@ test('pinned workflow preserves state between steps and isolates benchmark reque
  const transport=async(t:any,opts:any)=>{
   assert.equal(t.address,target.address);assert.equal(t.url.origin,target.url.origin);
   if(opts.method==='POST') {bodies.push(JSON.parse(opts.body));return {status:200,headers:{},text:'{"event_id":"event-1"}'};}
-  return {status:200,headers:{},text:'event: complete\ndata: ["assistant output"]\n\n'};
+  return {status:200,headers:{},text:'data: {"msg":"process_completed","event_id":"event-1","success":true,"output":{"data":["assistant output"]}}\n\n'};
  };
  const plan=parsePlan(JSON.stringify({steps:[{apiName:'prepare',inputs:['{{message}}']},{apiName:'answer',inputs:['{{step0}}']}]}),'chat','0');
  assert.deepEqual(await executeGradioPlan(target,plan,'fixture',transport),['assistant output','assistant output']);

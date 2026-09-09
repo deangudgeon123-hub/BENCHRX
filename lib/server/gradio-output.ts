@@ -1,16 +1,17 @@
+import {GradioInvocationError} from './gradio-errors.ts';
 // Protocol extraction is independent of prompts, expected answers and endpoint URLs.
 export function parseSseComplete(text: string): unknown {
   for (const block of text.split(/\r?\n\r?\n/).slice(0,-1)) {
     const lines = block.split(/\r?\n/);
     const event = lines.find((line) => line.startsWith('event:'))?.slice(6).trim();
     const data = lines.filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trimStart()).join('\n');
-    if (event === 'error') throw new Error('Gradio reported a failed job.');
+    if (event === 'error') throw new GradioInvocationError('job', 'job_failed');
     if (event === 'complete') {
       try { return JSON.parse(data); }
-      catch { throw new Error('Gradio completion payload was not valid JSON.'); }
+      catch { throw new GradioInvocationError('completion', 'invalid_json'); }
     }
   }
-  throw new Error('Gradio stream ended without a completion event.');
+  throw new GradioInvocationError('completion', 'incomplete_stream');
 }
 
 function extractMarkdownTranscriptAssistant(text: string): string | null {
@@ -72,4 +73,23 @@ export function extractAssistantText(value: unknown): string {
     return isNonFinalStatus(selected) ? '' : selected;
   }
   return '';
+}
+
+// /queue/data multiplexes session messages. Only this submitted event can complete the step.
+export function parseQueueSseComplete(text: string, eventId: string): unknown {
+  for (const block of text.split(/\r?\n\r?\n/).slice(0, -1)) {
+    const data = block.split(/\r?\n/).filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
+    if (!data) continue;
+    let message;
+    try {message = JSON.parse(data);} catch {throw new GradioInvocationError('completion', 'invalid_json');}
+    if (!message || typeof message !== 'object') continue;
+    if (message.msg === 'unexpected_error') throw new GradioInvocationError('poll', 'transport');
+    if (message.event_id !== eventId) continue;
+    if (message.success === false) throw new GradioInvocationError('job', 'job_failed');
+    if (message.msg === 'process_completed' && message.success === true) {
+      if (!Array.isArray(message.output?.data)) throw new GradioInvocationError('output', 'invalid_output');
+      return message.output.data;
+    }
+  }
+  throw new GradioInvocationError('completion', 'incomplete_stream');
 }

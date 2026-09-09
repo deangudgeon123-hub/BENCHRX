@@ -1,5 +1,6 @@
 import {randomUUID} from "node:crypto";
-import {parseSseComplete} from "./gradio-output.ts";
+import {GradioInvocationError} from "./gradio-errors.ts";
+import {parseSseComplete, parseQueueSseComplete} from "./gradio-output.ts";
 import {pinnedHttpsRequest,type ValidatedHttpsTarget} from "./pinned-https.ts";
 const REQUEST_TIMEOUT_MS = 18_000;
 const MAX_RESPONSE_BYTES = 1_000_000;
@@ -166,21 +167,24 @@ async function callPinnedSingleStep(
   space: ValidatedHttpsTarget,
   step: WorkflowStep,
   data: unknown[],
-  sessionHash: string,
+  sessionHash: string | undefined,
   deadline: number,
   transport: typeof pinnedHttpsRequest = pinnedHttpsRequest
 ) {
   const submitTarget = withPath(space, `/gradio_api/call/${encodeURIComponent(step.apiName)}`);
+  let body: string;
+  try {body = JSON.stringify({data, ...(sessionHash ? {session_hash: sessionHash} : {})});}
+  catch {throw new GradioInvocationError('payload', 'serialization');}
   const submitResponse = await transport(submitTarget, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ data, session_hash: sessionHash }),
+    body,
     timeoutMs: remainingTime(deadline),
     maxResponseBytes: MAX_RESPONSE_BYTES,
-  });
+  }).catch(() => {throw new GradioInvocationError('submit', 'transport');});
 
   if (submitResponse.status < 200 || submitResponse.status >= 300) {
-    throw new Error(`Gradio submit failed with ${submitResponse.status}.`);
+    throw new GradioInvocationError('submit', 'http_status', submitResponse.status);
   }
 
   let submitPayload: unknown = null;
@@ -194,26 +198,27 @@ async function callPinnedSingleStep(
     submitPayload && typeof submitPayload === "object" && "event_id" in submitPayload
       ? String((submitPayload as { event_id?: unknown }).event_id ?? "")
       : "";
-  if (!/^[A-Za-z0-9_-]{1,128}$/.test(eventId)) throw new Error("Gradio did not return a valid event ID.");
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(eventId)) throw new GradioInvocationError('event_id', 'invalid_event_id');
 
   const pollTarget = withPath(
     space,
-    `/gradio_api/call/${encodeURIComponent(step.apiName)}/${encodeURIComponent(eventId)}`
+    sessionHash ? `/gradio_api/queue/data?session_hash=${encodeURIComponent(sessionHash)}` :
+      `/gradio_api/call/${encodeURIComponent(step.apiName)}/${encodeURIComponent(eventId)}`
   );
   const pollResponse = await transport(pollTarget, {
     method: "GET",
     headers: { Accept: "text/event-stream" },
     timeoutMs: remainingTime(deadline),
     maxResponseBytes: MAX_RESPONSE_BYTES,
-  });
+  }).catch(() => {throw new GradioInvocationError('poll', 'transport');});
 
   if (pollResponse.status < 200 || pollResponse.status >= 300) {
-    throw new Error(`Gradio result request failed with ${pollResponse.status}.`);
+    throw new GradioInvocationError('poll', 'http_status', pollResponse.status);
   }
 
-  const completed = parseSseComplete(pollResponse.text);
+  const completed = sessionHash ? parseQueueSseComplete(pollResponse.text, eventId) : parseSseComplete(pollResponse.text);
   const outputs = Array.isArray(completed) ? completed : [completed];
-  if(step.outputIndex>=outputs.length) throw new Error("Gradio output index was out of range");
+  if(step.outputIndex>=outputs.length) throw new GradioInvocationError('output', 'invalid_output');
   return { completed, outputs, selected: outputs[step.outputIndex] };
 }
 
@@ -232,10 +237,13 @@ export async function executeGradioPlan(
   const deadline=Date.now()+45000;
   const selectedResults:unknown[]=[];
   const stepOutputs:unknown[][]=[];
-  for(const step of plan.steps) {
+  for(const [stepIndex, step] of plan.steps.entries()) {
     const data=replacePlaceholders(step.inputs,message,selectedResults,stepOutputs);
     if(!Array.isArray(data))throw new Error("Invalid workflow inputs");
-    const result=await callPinnedSingleStep(space,step,data,sessionHash,deadline,transport);
+    const result=await callPinnedSingleStep(space,step,data,plan.isWorkflow ? sessionHash : undefined,deadline,transport).catch(error => {
+      if (error instanceof GradioInvocationError) error.stepIndex = stepIndex;
+      throw error;
+    });
     selectedResults.push(result.selected);
     stepOutputs.push(result.outputs);
   }
