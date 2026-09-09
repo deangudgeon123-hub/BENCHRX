@@ -3,7 +3,7 @@ import {invokeConnector} from "@/lib/server/connectors/interface";
 import {gradioConnector} from "@/lib/server/connectors/gradio";
 import {NextResponse} from "next/server";
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 150;
 
 export async function POST(request: Request) {
   const denied = requireAdapter(request);
