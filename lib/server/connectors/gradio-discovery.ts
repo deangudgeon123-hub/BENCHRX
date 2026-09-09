@@ -1,6 +1,7 @@
 import type {ConnectorRecipe, GradioDiscovery, GradioEndpoint, GradioParameter} from '../../connectors/types.ts';
 import {publicConnectorIO, type ConnectorIO} from './interface.ts';
 import type {ValidatedHttpsTarget} from '../pinned-https.ts';
+import {statefulRecipes} from './gradio-chaining.ts';
 import {parsePlan} from '../gradio-workflow.ts';
 
 const URL_OPTIONS = {invalidUrlMessage: 'Enter a public Gradio or Hugging Face Space URL.', httpsRequiredMessage: 'Discovery requires a public HTTPS Space.'};
@@ -80,7 +81,16 @@ export async function discoverGradio(raw: string, io: ConnectorIO = publicConnec
   const space = await resolveGradioSpace(raw, io);
   const schema = await readJson({...space, url: new URL('/gradio_api/info', space.url.origin)}, io);
   const endpoints = parseGradioSchema(schema);
-  const recipes = singleStepRecipes(space.url.origin, endpoints);
+  let workflows: ConnectorRecipe[] = [];
+  if (endpoints.some(e => e.apiName === 'log_user_message') && endpoints.some(e => e.apiName === 'interact_with_agent')) {
+    try {
+      const config = await readJson({...space, url: new URL('/config', space.url.origin)}, io);
+      workflows = statefulRecipes(space.url.origin, endpoints, config, assistantOutputIndex);
+    } catch { /* Optional graph unavailable: preserve manual fallback and supported single steps. */ }
+  }
+  // Never suggest calling one half of a stateful chain as a standalone agent.
+  const standalone = endpoints.filter(e => e.apiName !== 'log_user_message' && e.apiName !== 'interact_with_agent');
+  const recipes = [...workflows, ...singleStepRecipes(space.url.origin, standalone)];
   return {provider: 'gradio', spaceUrl: space.url.origin, endpoints, recipes,
     status: recipes.length === 1 ? 'proposed' : recipes.length > 1 ? 'ambiguous' : 'manual_required',
     message: recipes.length === 1 ? 'Review the proposed recipe and test the connection before benchmarking.' : recipes.length > 1 ? 'Several endpoints fit. Choose and test a recipe; BENCHRX has not selected one.' : 'No unambiguous supported recipe was found. Use the exposed schema to configure manually.'};

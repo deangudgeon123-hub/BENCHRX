@@ -123,10 +123,17 @@ function getPath(value: unknown, path: number[]): unknown {
   return cursor;
 }
 
-export function replacePlaceholders(value: unknown, message: unknown, stepResults: unknown[]): unknown {
+export function replacePlaceholders(value: unknown, message: unknown, stepResults: unknown[], stepOutputs: unknown[][] = []): unknown {
   if (value === "{{message}}") return message;
 
   if (typeof value === "string") {
+    const outputMatch = value.match(/^\{\{step(\d+)\.outputs((?:\.\d+)*)\}\}$/);
+    if (outputMatch) {
+      const stepIndex = Number(outputMatch[1]);
+      if (stepIndex >= stepOutputs.length) throw new Error("Workflow references must point to completed earlier steps");
+      const path = outputMatch[2].split('.').filter(Boolean).map(Number);
+      return path.length ? getPath(stepOutputs[stepIndex], path) : stepOutputs[stepIndex];
+    }
     const match = value.match(/^\{\{step(\d+)((?:\.\d+)*)\}\}$/);
     if (match) {
       const stepIndex = Number(match[1]);
@@ -140,14 +147,14 @@ export function replacePlaceholders(value: unknown, message: unknown, stepResult
   }
 
   if (Array.isArray(value)) {
-    return value.map((item) => replacePlaceholders(item, message, stepResults));
+    return value.map((item) => replacePlaceholders(item, message, stepResults, stepOutputs));
   }
 
   if (value && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as JsonObject).map(([key, item]) => [
         key,
-        replacePlaceholders(item, message, stepResults),
+        replacePlaceholders(item, message, stepResults, stepOutputs),
       ])
     );
   }
@@ -207,7 +214,7 @@ async function callPinnedSingleStep(
   const completed = parseSseComplete(pollResponse.text);
   const outputs = Array.isArray(completed) ? completed : [completed];
   if(step.outputIndex>=outputs.length) throw new Error("Gradio output index was out of range");
-  return { completed, selected: outputs[step.outputIndex] };
+  return { completed, outputs, selected: outputs[step.outputIndex] };
 }
 
 function remainingTime(deadline:number): number {
@@ -224,11 +231,13 @@ export async function executeGradioPlan(
   const sessionHash=randomUUID();
   const deadline=Date.now()+45000;
   const selectedResults:unknown[]=[];
+  const stepOutputs:unknown[][]=[];
   for(const step of plan.steps) {
-    const data=replacePlaceholders(step.inputs,message,selectedResults);
+    const data=replacePlaceholders(step.inputs,message,selectedResults,stepOutputs);
     if(!Array.isArray(data))throw new Error("Invalid workflow inputs");
     const result=await callPinnedSingleStep(space,step,data,sessionHash,deadline,transport);
     selectedResults.push(result.selected);
+    stepOutputs.push(result.outputs);
   }
   return selectedResults;
 }
