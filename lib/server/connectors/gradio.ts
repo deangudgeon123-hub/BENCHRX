@@ -18,7 +18,7 @@ export function createGradioConnector(io: ConnectorIO = publicConnectorIO): Conn
     },
     async invoke(c, input) {return executeGradioPlan(c.space, c.plan, input.hasMessage ? input.message : undefined, io.request);},
     extract,
-    diagnose(c, result) {return extract(c, result) ? {status: 200} : {status: 502, error: 'Gradio completed but BENCHRX could not extract a text response.'};},
+    diagnose(c, result) {return extract(c, result) ? {outcome: 'observed_response', status: 200} : {outcome: 'unobserved_response', status: 502, error: 'Gradio completed but BENCHRX could not extract a text response.'};},
     metadata(c) {return {targetHost: c.space.hostname, apiName: c.plan.steps[c.plan.finalStepIndex].apiName, workflowSteps: c.plan.steps.length, clientMode: 'pinned'};},
   };
 }

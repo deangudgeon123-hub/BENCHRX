@@ -39,6 +39,6 @@ test('generic redirect and missing extraction stay connector errors; unsafe mapp
     const reply = await invokeConnector(provider, config, {message: 'hello'});
     assert.equal(reply.status, status === 401 ? 401 : 502); assert.equal(reply.body.response, undefined);
     config.set('requestPath', '__proto__.polluted');
-    await assert.rejects(invokeConnector(provider, config, {message: 'hello'}));
+    assert.equal((await invokeConnector(provider, config, {message: 'hello'})).status, 502);
   }
 });

@@ -29,9 +29,9 @@ export function createGenericConnector(io: ConnectorIO = publicConnectorIO): Con
     },
     extract,
     diagnose(c, r) {
-      if (r.status >= 300 && r.status < 400) return {status: 502, error: 'Custom agent endpoint returned a redirect. Redirects are not followed.'};
-      if (!extract(c, r)) return {status: r.status >= 400 ? r.status : 502, error: 'No usable string response found at the configured path'};
-      return {status: r.status >= 400 ? r.status : 200};
+      if (r.status >= 300 && r.status < 400) return {outcome: 'connector_failure', status: 502, error: 'Custom agent endpoint returned a redirect. Redirects are not followed.'};
+      if (!extract(c, r)) return {outcome: r.status >= 400 ? 'connector_failure' : 'unobserved_response', status: r.status >= 400 ? r.status : 502, error: 'No usable string response found at the configured path'};
+      return {outcome: 'observed_response', status: r.status >= 400 ? r.status : 200};
     },
     metadata() {return {};},
   };

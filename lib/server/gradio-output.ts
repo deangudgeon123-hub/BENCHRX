@@ -14,7 +14,7 @@ export function parseSseComplete(text: string): unknown {
 }
 
 function extractMarkdownTranscriptAssistant(text: string): string | null {
-  const trimmed = text.trim();
+  let trimmed = text.trim();
   // Some Gradio apps return a rendered chat transcript as one Markdown string:
   //   #### You
   //
@@ -25,8 +25,13 @@ function extractMarkdownTranscriptAssistant(text: string): string | null {
   //   assistant-authored text
   // Require the quoted-user shape so arbitrary assistant Markdown is not truncated.
   if (!/^#### You\r?\n\r?\n> /u.test(trimmed)) return null;
+  // If a rendered transcript has multiple turns, inspect only the final user turn.
+  // A trailing user turn must never fall back to an older assistant response.
+  const turns = [...trimmed.matchAll(/(?:^|\r?\n\r?\n)#### You\r?\n\r?\n> /gu)];
+  const lastTurn = turns[turns.length - 1];
+  if (lastTurn) trimmed = trimmed.slice(lastTurn.index).trimStart();
   const boundary = /\r?\n\r?\n#### ([^\r\n]+)\r?\n\r?\n/u.exec(trimmed);
-  if (!boundary || boundary[1].trim().toLowerCase() === 'you') return null;
+  if (!boundary || boundary[1].trim().toLowerCase() === 'you') return '';
   return trimmed.slice((boundary.index ?? 0) + boundary[0].length).trim();
 }
 
