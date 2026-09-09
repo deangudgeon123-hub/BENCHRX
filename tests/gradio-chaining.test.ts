@@ -53,8 +53,9 @@ test('declared hidden Gradio fan-in can bridge a one-input messages API safely',
   const recipe = discovery.recipes[0].config;
   const plan = parsePlan(recipe.inputs, recipe.apiName, recipe.outputIndex);
   assert.equal(plan.steps.length, 1); assert.equal(plan.steps[0].apiName, 'interact_with_agent');
-  assert.deepEqual(plan.steps[0].inputs, [[{role: 'user', content: '{{message}}'}]]);
-  assert.deepEqual(replacePlaceholders(plan.steps[0].inputs, 'BENCHRX_GATEWAY_OK', []), [[{role: 'user', content: 'BENCHRX_GATEWAY_OK'}]]);
+  const template = [[{role: 'user', metadata: null, content: '{{message}}', options: null}]];
+  assert.deepEqual(plan.steps[0].inputs, template);
+  assert.deepEqual(replacePlaceholders(plan.steps[0].inputs, 'BENCHRX_GATEWAY_OK', []), [[{role: 'user', metadata: null, content: 'BENCHRX_GATEWAY_OK', options: null}]]);
 });
 test('hidden Gradio bridge refuses ambiguous shared component links', async () => {
   const liveLikeSchema = {named_endpoints: {
