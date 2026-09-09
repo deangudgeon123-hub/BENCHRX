@@ -25,7 +25,12 @@ function chatbotBridgeRecipe(
   if (linkedComponents.length !== 1) return null;
   const finalOutput = outputIndex(second);
   if (finalOutput < 0) return null;
-  const inputs = JSON.stringify([[{role: 'user', content: '{{message}}'}]]);
+  // Gradio's messages-format Chatbot schema commonly exposes nullable metadata/options
+  // as part of the message object. Supplying the complete public shape avoids strict
+  // input validation rejecting an otherwise valid user turn.
+  const inputs = JSON.stringify([[
+    {role: 'user', metadata: null, content: '{{message}}', options: null},
+  ]]);
   parsePlan(inputs, second.apiName, String(finalOutput));
   return {
     provider: 'gradio',
