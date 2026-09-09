@@ -1,6 +1,9 @@
 import { requireOperator, readBoundedJson, appOrigin } from "@/lib/server/access";
 import { NextResponse } from "next/server";
 
+export const runtime = "nodejs";
+export const maxDuration = 150;
+
 export async function POST(request: Request) {
   const denied = requireOperator(request);
   if (denied) return denied;
@@ -65,7 +68,7 @@ export async function POST(request: Request) {
           message: "Reply briefly to confirm this BENCHRX connection test was received.",
         }),
         cache: "no-store",
-        signal: AbortSignal.timeout(65000),
+        signal: AbortSignal.timeout(connectionType === "gradio" ? 135000 : 65000),
         redirect: "error",
       });
     } catch (error) {
