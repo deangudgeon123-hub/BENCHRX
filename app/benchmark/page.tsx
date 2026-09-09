@@ -12,6 +12,7 @@ import {
   PlugZap,
   ShieldCheck,
 } from "lucide-react";
+import {GradioDiscoveryControls} from "@/components/gradio-discovery-controls";
 import { SiteHeader } from "@/components/site-header";
 
 type RecentBenchmark = {
@@ -380,6 +381,8 @@ export default function BenchmarkPage() {
                   />
                 </label>
 
+                <GradioDiscoveryControls onApply={() => {setConnectionStatus(""); setError("");}} />
+                <p className="mt-5 text-sm font-bold">Advanced / manual configuration</p>
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
                   <label className="block">
                     <span className="mb-2 block text-sm font-bold">Gradio API name</span>
@@ -413,7 +416,7 @@ export default function BenchmarkPage() {
                     className="w-full resize-y rounded-2xl border border-white/10 bg-black/20 px-4 py-3.5 font-mono text-sm text-white outline-none transition focus:border-[var(--accent)]/50"
                   />
                   <span className="mt-2 block text-xs leading-5 text-[var(--muted)]">
-                    Enter the endpoint&apos;s input array in API order. Use <span className="font-mono text-white/70">{"{{message}}"}</span> where BENCHRX should insert each test prompt.
+                    Enter the endpoint&apos;s input array in API order, or retain a manual workflow object with steps. Use <span className="font-mono text-white/70">{"{{message}}"}</span> where BENCHRX should insert each test prompt.
                   </span>
                 </label>
 

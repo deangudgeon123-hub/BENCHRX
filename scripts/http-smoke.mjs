@@ -13,7 +13,7 @@ try {
   await new Promise(r=>setTimeout(r,100));
  }
  assert.ok(ready,'Production server started');
- for(const path of ['/api/agents','/api/agents/fixture/rerun','/api/connections/test','/api/adapters/generic','/api/adapters/gradio','/api/adapters/storkie']){
+ for(const path of ['/api/agents','/api/agents/fixture/rerun','/api/connections/test','/api/connections/discover','/api/adapters/generic','/api/adapters/gradio','/api/adapters/storkie']){
   const response=await fetch(origin+path,{method:'POST',body:'{"message":"fixture"}'});
   assert.equal(response.status,401,path);
  }
@@ -23,5 +23,5 @@ try {
  const challenge=await fetch(origin+'/operator');assert.equal(challenge.status,401);assert.match(challenge.headers.get('www-authenticate'),/^Basic /);
  const crossSite=await fetch(origin+'/api/agents',{method:'POST',headers:{Authorization:'Basic '+Buffer.from('benchrx:'+token).toString('base64'),Origin:'https://evil.example'}});
  assert.equal(crossSite.status,403);
- console.log('10 production HTTP access/CSRF checks passed');
+ console.log('11 production HTTP access/CSRF checks passed');
 }finally{child.kill('SIGTERM');}
