@@ -111,6 +111,11 @@ export async function validateAndPinPublicHttpsUrl(
   };
 }
 
+// A trusted local timeout marker; never classify from upstream text or error strings.
+export class PinnedRequestTimeoutError extends Error {
+  constructor() { super("Upstream request deadline exceeded."); }
+}
+
 export async function pinnedHttpsRequest(
   target: ValidatedHttpsTarget,
   options: PinnedRequestOptions
@@ -183,9 +188,9 @@ export async function pinnedHttpsRequest(
       }
     );
 
-    deadline = setTimeout(() => req.destroy(new Error("Upstream absolute deadline exceeded.")), options.timeoutMs);
+    deadline = setTimeout(() => req.destroy(new PinnedRequestTimeoutError()), options.timeoutMs);
     req.setTimeout(options.timeoutMs, () => {
-      req.destroy(new Error("Upstream request timed out."));
+      req.destroy(new PinnedRequestTimeoutError());
     });
     req.on("error", (error) => finishReject(error));
 

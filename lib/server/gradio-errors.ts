@@ -1,7 +1,7 @@
 // Only fixed codes and trusted HTTP status values may cross the diagnostic boundary.
 export class GradioInvocationError extends Error {
   stage: 'payload' | 'submit' | 'event_id' | 'poll' | 'job' | 'completion' | 'output';
-  code: 'serialization' | 'transport' | 'http_status' | 'invalid_event_id' | 'job_failed' | 'incomplete_stream' | 'invalid_json' | 'invalid_output';
+  code: 'timeout' | 'serialization' | 'transport' | 'http_status' | 'invalid_event_id' | 'job_failed' | 'incomplete_stream' | 'invalid_json' | 'invalid_output';
   httpStatus?: number;
   stepIndex?: number;
   constructor(stage: GradioInvocationError['stage'], code: GradioInvocationError['code'], httpStatus?: number) {

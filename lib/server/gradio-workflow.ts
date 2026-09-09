@@ -1,7 +1,7 @@
 import {randomUUID} from "node:crypto";
 import {GradioInvocationError} from "./gradio-errors.ts";
 import {parseSseComplete, parseQueueSseComplete} from "./gradio-output.ts";
-import {pinnedHttpsRequest,type ValidatedHttpsTarget} from "./pinned-https.ts";
+import {pinnedHttpsRequest, PinnedRequestTimeoutError, type ValidatedHttpsTarget} from "./pinned-https.ts";
 const REQUEST_TIMEOUT_MS = 18_000;
 const MAX_RESPONSE_BYTES = 1_000_000;
 const MAX_WORKFLOW_STEPS = 4;
@@ -181,7 +181,7 @@ async function callPinnedSingleStep(
     body,
     timeoutMs: remainingTime(deadline),
     maxResponseBytes: MAX_RESPONSE_BYTES,
-  }).catch(() => {throw new GradioInvocationError('submit', 'transport');});
+  }).catch(error => {throw new GradioInvocationError('submit', error instanceof PinnedRequestTimeoutError ? 'timeout' : 'transport');});
 
   if (submitResponse.status < 200 || submitResponse.status >= 300) {
     throw new GradioInvocationError('submit', 'http_status', submitResponse.status);
@@ -208,9 +208,11 @@ async function callPinnedSingleStep(
   const pollResponse = await transport(pollTarget, {
     method: "GET",
     headers: { Accept: "text/event-stream" },
-    timeoutMs: remainingTime(deadline),
+    // SSE is one long-lived response: use the remaining workflow budget, not the
+    // short submit timeout. Heartbeats must not reset the absolute deadline.
+    timeoutMs: remainingTime(deadline, 'poll'),
     maxResponseBytes: MAX_RESPONSE_BYTES,
-  }).catch(() => {throw new GradioInvocationError('poll', 'transport');});
+  }).catch(error => {throw new GradioInvocationError('poll', error instanceof PinnedRequestTimeoutError ? 'timeout' : 'transport');});
 
   if (pollResponse.status < 200 || pollResponse.status >= 300) {
     throw new GradioInvocationError('poll', 'http_status', pollResponse.status);
@@ -222,10 +224,10 @@ async function callPinnedSingleStep(
   return { completed, outputs, selected: outputs[step.outputIndex] };
 }
 
-function remainingTime(deadline:number): number {
+function remainingTime(deadline:number, stage: 'submit' | 'poll' = 'submit'): number {
   const remaining=deadline-Date.now();
-  if(remaining<=0)throw new Error("Gradio workflow deadline exceeded");
-  return Math.min(REQUEST_TIMEOUT_MS,remaining);
+  if(remaining<=0)throw new GradioInvocationError(stage, 'timeout');
+  return stage === 'poll' ? remaining : Math.min(REQUEST_TIMEOUT_MS,remaining);
 }
 
 // One fresh session per benchmark request; all steps share it. No cross-test state.
