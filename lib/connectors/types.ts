@@ -7,3 +7,12 @@ export type ConnectorDiscovery = {
   message: string;
   recipes: ConnectorRecipe[];
 };
+export type GradioParameter = {
+  name: string; type: string; component: string;
+  hasDefault: boolean; defaultValue?: unknown;
+};
+export type GradioEndpoint = {
+  apiName: string; inputs: GradioParameter[]; outputs: GradioParameter[];
+  inputCount: number; outputCount: number; likelyAgent: boolean;
+};
+export type GradioDiscovery = ConnectorDiscovery & {spaceUrl: string; endpoints: GradioEndpoint[]};
