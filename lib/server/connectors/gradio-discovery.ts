@@ -7,20 +7,25 @@ import {parsePlan} from '../gradio-workflow.ts';
 const URL_OPTIONS = {invalidUrlMessage: 'Enter a public Gradio or Hugging Face Space URL.', httpsRequiredMessage: 'Discovery requires a public HTTPS Space.'};
 const object = (v: unknown): Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {};
 const label = (v: unknown): string => typeof v === 'string' ? v.slice(0, 100) : '';
+const SENSITIVE_NAME = /api[_-]?key|token|secret|password|credential|authorization|bearer/i;
 
 // Expose only harmless defaults. Free-form text defaults can contain credentials or
-// private prompt material, so keep them redacted unless the parameter is clearly a
-// non-secret execution control (for example a declared model/engine/backend name).
-function safeDefault(v: unknown, component: string, name: string): boolean {
+// private prompt material, so keep them redacted. Declared selection controls are
+// different: their current value is part of the public UI configuration and is needed
+// to invoke multi-input agents without inventing values.
+function safeDefault(v: unknown, component: string, name = ''): boolean {
   if (v === null || v === '' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v)) ||
       (Array.isArray(v) && v.length === 0) || (v !== null && typeof v === 'object' && Object.keys(v).length === 0)) return true;
+  if (SENSITIVE_NAME.test(name)) return false;
   if (/^(dropdown|radio)$/i.test(component)) return typeof v === 'string' || typeof v === 'number';
   if (/^(checkboxgroup|checkbox-group)$/i.test(component)) {
     return Array.isArray(v) && v.length <= 32 && v.every(item => typeof item === 'string' && item.length <= 100);
   }
-  if (/^textbox$/i.test(component) && typeof v === 'string' && v.length <= 200 &&
-      /(?:^|_)(?:model|model_engine|engine|backend|provider)(?:$|_)/i.test(name) &&
-      !/(?:api_?key|token|secret|password|credential|auth)/i.test(name)) return true;
+  // Model/backend selectors are often rendered as textboxes in public Gradio apps.
+  // Accept only narrowly named, declared defaults; arbitrary textbox defaults remain hidden.
+  if (/^(textbox|text)$/i.test(component) && /model|engine|backend|provider/i.test(name)) {
+    return typeof v === 'string' && v.length <= 200;
+  }
   return false;
 }
 function parameter(raw: unknown, index: number): GradioParameter {
@@ -39,13 +44,20 @@ export function parseGradioSchema(raw: unknown): GradioEndpoint[] {
     if (e.parameters.length > 32 || e.returns.length > 32) return [];
     const inputs = e.parameters.map(parameter), outputs = e.returns.map(parameter);
     return [{apiName, inputs, outputs, inputCount: inputs.length, outputCount: outputs.length,
-      likelyAgent: /chat|agent|respond|predict|generate|solve|^_?run$/i.test(apiName)}];
+      likelyAgent: /chat|agent|respond|predict|generate|solve|plan|^_?run$/i.test(apiName)}];
   });
 }
 function messageIndex(e: GradioEndpoint): number {
   const strings = e.inputs.map((p, i) => ({p, i})).filter(({p}) => p.type === 'string' || p.type === 'str');
   const named = strings.filter(({p}) => /^(message|user_message|prompt|text|query|input|user_input|user_query)$/i.test(p.name));
   return named.length === 1 ? named[0].i : named.length === 0 && strings.length === 1 && e.likelyAgent ? strings[0].i : -1;
+}
+function structuredMessageIndex(e: GradioEndpoint): number {
+  if (e.inputs.length < 2) return -1;
+  const candidates = e.inputs.map((p, i) => ({p, i})).filter(({p}) =>
+    (p.type === 'string' || p.type === 'str') &&
+    /^(preferences?|instructions?|task|request|requirements?|details?|context|description)$/i.test(p.name));
+  return candidates.length === 1 ? candidates[0].i : -1;
 }
 export function assistantOutputIndex(e: GradioEndpoint): number {
   const chat = e.outputs.map((p, i) => ({p, i})).filter(({p}) => p.component === 'chatbot');
@@ -72,6 +84,26 @@ export function singleStepRecipes(spaceUrl: string, endpoints: GradioEndpoint[])
     const config = {space: spaceUrl, apiName: e.apiName, inputs: JSON.stringify(inputs), outputIndex: String(output)};
     parsePlan(config.inputs, config.apiName, config.outputIndex);
     return [{provider: 'gradio' as const, label: `/${e.apiName}`, config}];
+  });
+}
+
+// Structured endpoints (for example plan_trip(origin, destination, month, preferences))
+// cannot be invoked safely until the operator supplies fixed values for required fields.
+// Propose an editable template instead of inventing data. The benchmark prompt is mapped
+// only when exactly one semantically suitable free-text field is present.
+export function structuredInputRecipes(spaceUrl: string, endpoints: GradioEndpoint[]): ConnectorRecipe[] {
+  return endpoints.flatMap(e => {
+    const message = structuredMessageIndex(e), output = assistantOutputIndex(e);
+    if (message < 0 || output < 0 || e.inputs.some(p => p.component === 'state')) return [];
+    if (e.inputs.some((p, i) => i !== message && !p.hasDefault && !(p.type === 'string' || p.type === 'str'))) return [];
+    const inputs = e.inputs.map((p, i) => {
+      if (i === message) return '{{message}}';
+      if (p.hasDefault) return p.defaultValue;
+      return `<REQUIRED:${p.name}>`;
+    });
+    const config = {space: spaceUrl, apiName: e.apiName, inputs: JSON.stringify(inputs), outputIndex: String(output)};
+    parsePlan(config.inputs, config.apiName, config.outputIndex);
+    return [{provider: 'gradio' as const, label: `/${e.apiName} (structured input template)`, config}];
   });
 }
 
@@ -110,8 +142,12 @@ export async function discoverGradio(raw: string, io: ConnectorIO = publicConnec
   }
   // Never suggest calling one half of a stateful chain as a standalone agent.
   const standalone = endpoints.filter(e => e.apiName !== 'log_user_message' && e.apiName !== 'interact_with_agent');
-  const recipes = [...workflows, ...singleStepRecipes(space.url.origin, standalone)];
+  const direct = singleStepRecipes(space.url.origin, standalone);
+  const directNames = new Set(direct.map(recipe => recipe.config.apiName));
+  const structured = structuredInputRecipes(space.url.origin, standalone.filter(e => !directNames.has(e.apiName)));
+  const recipes = [...workflows, ...direct, ...structured];
+  const hasRequired = recipes.some(recipe => recipe.config.inputs.includes('<REQUIRED:'));
   return {provider: 'gradio', spaceUrl: space.url.origin, endpoints, recipes,
     status: recipes.length === 1 ? 'proposed' : recipes.length > 1 ? 'ambiguous' : 'manual_required',
-    message: recipes.length === 1 ? 'Review the proposed recipe and test the connection before benchmarking.' : recipes.length > 1 ? 'Several endpoints fit. Choose and test a recipe; BENCHRX has not selected one.' : 'No unambiguous supported recipe was found. Use the exposed schema to configure manually.'};
+    message: recipes.length === 1 && hasRequired ? 'Structured input template found. Fill every REQUIRED placeholder with a fixed value, then test the connection.' : recipes.length === 1 ? 'Review the proposed recipe and test the connection before benchmarking.' : recipes.length > 1 ? 'Several endpoints fit. Choose and test a recipe; BENCHRX has not selected one.' : 'No unambiguous supported recipe was found. Use the exposed schema to configure manually.'};
 }
