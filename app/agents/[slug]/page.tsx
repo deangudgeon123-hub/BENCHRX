@@ -264,7 +264,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                 {!positiveReadiness ? <CircleGauge className="mt-0.5 shrink-0 text-amber-300" size={21} /> : <CheckCircle2 className="mt-0.5 shrink-0 text-emerald-300" size={21} />}
                 <div>
                   <p className={`font-black ${!positiveReadiness ? "text-amber-50" : "text-emerald-50"}`}>{productionScore === null ? "Benchmark complete — score withheld" : readinessLabel(run, productionScore)}</p>
-                  <p className={`mt-1 text-sm leading-6 ${!positiveReadiness ? "text-amber-100/70" : "text-emerald-100/70"}`}>{productionScore === null ? `Insufficient behavioural coverage: ${insufficientCategories.join("; ")}.` : readinessLabel(run, productionScore)}</p>
+                  <p className={`mt-1 text-sm leading-6 ${!positiveReadiness ? "text-amber-100/70" : "text-emerald-100/70"}`}>{productionScore === null ? `Insufficient behavioural coverage: ${insufficientCategories.join("; ")}.` : run.readiness_reasons?.length ? run.readiness_reasons.join("; ") : readinessLabel(run, productionScore)}</p>
                 </div>
               </div>
               <div className={`flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] ${!positiveReadiness ? "text-amber-100/80" : "text-emerald-100/80"}`}><ShieldCheck size={14} /> {productionScore === null ? "Insufficient evidence" : readinessLabel(run, productionScore)}</div>

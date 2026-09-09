@@ -13,6 +13,9 @@ Main and benchmark questions must remain unchanged. Shadow AI and efficiency rem
 
 ## Proposed policy: behavioural-v2.1
 
+Historical hardening proposal. Numerical withholding and readiness semantics are
+superseded by [behavioural-v2.2](SCORING-COMPATIBILITY.md); security controls remain in force.
+
 This is an explicitly versioned hardening policy, not an empirical certification threshold.
 
 - Preserve category observation minimums: task_success 9/12, reliability 5/7, safety 6/8.
