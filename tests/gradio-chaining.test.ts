@@ -35,14 +35,17 @@ test('auto-discovered two-step chain forwards actual upstream history, not liter
   assert.deepEqual(bodies[1].data, [state]); assert.equal(bodies[0].session_hash, bodies[1].session_hash);
   assert.deepEqual(values[1], [['fixture message', 'Final answer']]);
 });
-test('declared hidden Chatbot output can bridge a one-input messages agent safely', async () => {
+test('declared hidden Gradio fan-in can bridge a one-input messages API safely', async () => {
   const liveLikeSchema = {named_endpoints: {
     '/log_user_message': {parameters: [{parameter_name: 'text_input', type: {type: 'string'}, component: 'Textbox'}], returns: [{parameter_name: 'text_input', type: {type: 'string'}, component: 'Textbox'}]},
     '/interact_with_agent': {parameters: [{parameter_name: 'messages', type: {type: 'array'}, component: 'Chatbot'}], returns: [{parameter_name: 'Agent', type: {type: 'array'}, component: 'Chatbot'}]},
   }};
+  // The public API exposes only one input/output per endpoint, while Gradio's UI graph
+  // includes hidden upload/chat/session components. Exactly one component (stored messages)
+  // is shared from the logging step into the agent step.
   const hiddenGraph = {dependencies: [
-    {id: 20, api_name: 'log_user_message', inputs: [1], outputs: [3, 1, 4]},
-    {id: 21, api_name: 'interact_with_agent', inputs: [3], outputs: [3], trigger_after: 20},
+    {id: 20, api_name: 'log_user_message', inputs: [1, 7], outputs: [3, 1, 4]},
+    {id: 21, api_name: 'interact_with_agent', inputs: [3, 5, 6], outputs: [5], trigger_after: 20},
   ]};
   const discovery = await discoverGradio(target.url.href, discoveryIO(hiddenGraph, liveLikeSchema));
   assert.equal(discovery.status, 'proposed'); assert.equal(discovery.recipes.length, 1);
@@ -52,6 +55,18 @@ test('declared hidden Chatbot output can bridge a one-input messages agent safel
   assert.equal(plan.steps.length, 1); assert.equal(plan.steps[0].apiName, 'interact_with_agent');
   assert.deepEqual(plan.steps[0].inputs, [[{role: 'user', content: '{{message}}'}]]);
   assert.deepEqual(replacePlaceholders(plan.steps[0].inputs, 'BENCHRX_GATEWAY_OK', []), [[{role: 'user', content: 'BENCHRX_GATEWAY_OK'}]]);
+});
+test('hidden Gradio bridge refuses ambiguous shared component links', async () => {
+  const liveLikeSchema = {named_endpoints: {
+    '/log_user_message': {parameters: [{parameter_name: 'text_input', type: {type: 'string'}, component: 'Textbox'}], returns: [{parameter_name: 'text_input', type: {type: 'string'}, component: 'Textbox'}]},
+    '/interact_with_agent': {parameters: [{parameter_name: 'messages', type: {type: 'array'}, component: 'Chatbot'}], returns: [{parameter_name: 'Agent', type: {type: 'array'}, component: 'Chatbot'}]},
+  }};
+  const ambiguous = {dependencies: [
+    {id: 20, api_name: 'log_user_message', inputs: [1], outputs: [3, 4]},
+    {id: 21, api_name: 'interact_with_agent', inputs: [3, 4, 6], outputs: [5], trigger_after: 20},
+  ]};
+  const discovery = await discoverGradio(target.url.href, discoveryIO(ambiguous, liveLikeSchema));
+  assert.equal(discovery.status, 'manual_required'); assert.equal(discovery.recipes.length, 0);
 });
 test('missing dependency, disconnected state and hidden positional state fall back to manual', async () => {
   for (const changes of [{trigger_after: 999}, {inputs: [9]}, {inputs: [2, 3]}]) {
