@@ -14,9 +14,9 @@ const config = {dependencies: [
   {id: 10, api_name: 'log_user_message', inputs: [1, 2], outputs: [1, 2]},
   {id: 11, api_name: 'interact_with_agent', inputs: [2], outputs: [2], trigger_after: 10},
 ]};
-function discoveryIO(graph: unknown = config): ConnectorIO {return {pin: async () => target, request: async (t, o) => {
+function discoveryIO(graph: unknown = config, apiSchema: unknown = schema): ConnectorIO {return {pin: async () => target, request: async (t, o) => {
   assert.equal(o.method, 'GET');
-  return {status: 200, headers: {}, text: JSON.stringify(t.url.pathname === '/config' ? graph : schema)};
+  return {status: 200, headers: {}, text: JSON.stringify(t.url.pathname === '/config' ? graph : apiSchema)};
 }};}
 test('auto-discovered two-step chain forwards actual upstream history, not literal empty state', async () => {
   const discovery = await discoverGradio(target.url.href, discoveryIO());
@@ -34,6 +34,24 @@ test('auto-discovered two-step chain forwards actual upstream history, not liter
   assert.deepEqual(bodies[0].data, ['fixture message', []]);
   assert.deepEqual(bodies[1].data, [state]); assert.equal(bodies[0].session_hash, bodies[1].session_hash);
   assert.deepEqual(values[1], [['fixture message', 'Final answer']]);
+});
+test('declared hidden Chatbot output can bridge a one-input messages agent safely', async () => {
+  const liveLikeSchema = {named_endpoints: {
+    '/log_user_message': {parameters: [{parameter_name: 'text_input', type: {type: 'string'}, component: 'Textbox'}], returns: [{parameter_name: 'text_input', type: {type: 'string'}, component: 'Textbox'}]},
+    '/interact_with_agent': {parameters: [{parameter_name: 'messages', type: {type: 'array'}, component: 'Chatbot'}], returns: [{parameter_name: 'Agent', type: {type: 'array'}, component: 'Chatbot'}]},
+  }};
+  const hiddenGraph = {dependencies: [
+    {id: 20, api_name: 'log_user_message', inputs: [1], outputs: [3, 1, 4]},
+    {id: 21, api_name: 'interact_with_agent', inputs: [3], outputs: [3], trigger_after: 20},
+  ]};
+  const discovery = await discoverGradio(target.url.href, discoveryIO(hiddenGraph, liveLikeSchema));
+  assert.equal(discovery.status, 'proposed'); assert.equal(discovery.recipes.length, 1);
+  assert.equal(discovery.recipes[0].label, '/log_user_message → /interact_with_agent (Chatbot bridge)');
+  const recipe = discovery.recipes[0].config;
+  const plan = parsePlan(recipe.inputs, recipe.apiName, recipe.outputIndex);
+  assert.equal(plan.steps.length, 1); assert.equal(plan.steps[0].apiName, 'interact_with_agent');
+  assert.deepEqual(plan.steps[0].inputs, [[{role: 'user', content: '{{message}}'}]]);
+  assert.deepEqual(replacePlaceholders(plan.steps[0].inputs, 'BENCHRX_GATEWAY_OK', []), [[{role: 'user', content: 'BENCHRX_GATEWAY_OK'}]]);
 });
 test('missing dependency, disconnected state and hidden positional state fall back to manual', async () => {
   for (const changes of [{trigger_after: 999}, {inputs: [9]}, {inputs: [2, 3]}]) {
