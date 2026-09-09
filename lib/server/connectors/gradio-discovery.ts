@@ -51,7 +51,16 @@ export function assistantOutputIndex(e: GradioEndpoint): number {
   const text = e.outputs.map((p, i) => ({p, i})).filter(({p}) =>
     (p.type === 'string' || p.type === 'str') && !/user|prompt|input|message|status/i.test(p.name));
   const named = text.filter(({p}) => /assistant|answer|response|output|transcript/i.test(p.name));
-  return named.length === 1 ? named[0].i : text.length === 1 ? text[0].i : -1;
+  if (named.length === 1) return named[0].i;
+  if (text.length === 1) return text[0].i;
+
+  // Some Gradio versions expose Chatbot(messages) returns only as array/list in the
+  // public API schema, without preserving the component type. For an agent-like
+  // endpoint, accept exactly one conversationally named structured output. Invocation
+  // still has to pass normal assistant-text extraction before the connection succeeds.
+  const structured = e.outputs.map((p, i) => ({p, i})).filter(({p}) =>
+    /^(array|list)$/.test(p.type) && /assistant|answer|response|output|history|messages?|transcript|conversation|solution|problem[-_ ]?solving/i.test(p.name));
+  return e.likelyAgent && structured.length === 1 ? structured[0].i : -1;
 }
 export function singleStepRecipes(spaceUrl: string, endpoints: GradioEndpoint[]): ConnectorRecipe[] {
   return endpoints.flatMap(e => {
