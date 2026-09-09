@@ -3,6 +3,7 @@ import {GradioInvocationError} from "./gradio-errors.ts";
 import {parseSseComplete, parseQueueSseComplete} from "./gradio-output.ts";
 import {pinnedHttpsRequest, PinnedRequestTimeoutError, type ValidatedHttpsTarget} from "./pinned-https.ts";
 const REQUEST_TIMEOUT_MS = 18_000;
+const WORKFLOW_TIMEOUT_MS = 125_000;
 const MAX_RESPONSE_BYTES = 1_000_000;
 const MAX_WORKFLOW_STEPS = 4;
 
@@ -236,7 +237,7 @@ export async function executeGradioPlan(
   transport:typeof pinnedHttpsRequest=pinnedHttpsRequest
 ) {
   const sessionHash=randomUUID();
-  const deadline=Date.now()+45000;
+  const deadline=Date.now()+WORKFLOW_TIMEOUT_MS;
   const selectedResults:unknown[]=[];
   const stepOutputs:unknown[][]=[];
   for(const [stepIndex, step] of plan.steps.entries()) {
@@ -251,4 +252,3 @@ export async function executeGradioPlan(
   }
   return selectedResults;
 }
-
