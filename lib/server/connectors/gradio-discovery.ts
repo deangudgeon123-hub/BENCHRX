@@ -8,16 +8,25 @@ const URL_OPTIONS = {invalidUrlMessage: 'Enter a public Gradio or Hugging Face S
 const object = (v: unknown): Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {};
 const label = (v: unknown): string => typeof v === 'string' ? v.slice(0, 100) : '';
 
-// Expose only harmless defaults; never return raw schemas, examples, or string secrets.
-function safeDefault(v: unknown): boolean {
-  return v === null || v === '' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v)) ||
-    (Array.isArray(v) && v.length === 0) || (v !== null && typeof v === 'object' && Object.keys(v).length === 0);
+// Expose only harmless defaults. Free-form text defaults can contain credentials or
+// private prompt material, so keep them redacted. Declared selection controls are
+// different: their current value is part of the public UI configuration and is needed
+// to invoke multi-input agents without inventing values.
+function safeDefault(v: unknown, component: string): boolean {
+  if (v === null || v === '' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v)) ||
+      (Array.isArray(v) && v.length === 0) || (v !== null && typeof v === 'object' && Object.keys(v).length === 0)) return true;
+  if (/^(dropdown|radio)$/i.test(component)) return typeof v === 'string' || typeof v === 'number';
+  if (/^(checkboxgroup|checkbox-group)$/i.test(component)) {
+    return Array.isArray(v) && v.length <= 32 && v.every(item => typeof item === 'string' && item.length <= 100);
+  }
+  return false;
 }
 function parameter(raw: unknown, index: number): GradioParameter {
   const p = object(raw), type = object(p.type), python = object(p.python_type);
-  const hasDefault = p.parameter_has_default === true && safeDefault(p.parameter_default);
+  const component = label(p.component).toLowerCase();
+  const hasDefault = p.parameter_has_default === true && safeDefault(p.parameter_default, component);
   return {name: label(p.parameter_name || p.label) || `parameter_${index}`, type: label(type.type || python.type),
-    component: label(p.component).toLowerCase(), hasDefault, ...(hasDefault ? {defaultValue: p.parameter_default} : {})};
+    component, hasDefault, ...(hasDefault ? {defaultValue: p.parameter_default} : {})};
 }
 export function parseGradioSchema(raw: unknown): GradioEndpoint[] {
   const named = object(object(raw).named_endpoints);
@@ -28,12 +37,12 @@ export function parseGradioSchema(raw: unknown): GradioEndpoint[] {
     if (e.parameters.length > 32 || e.returns.length > 32) return [];
     const inputs = e.parameters.map(parameter), outputs = e.returns.map(parameter);
     return [{apiName, inputs, outputs, inputCount: inputs.length, outputCount: outputs.length,
-      likelyAgent: /chat|agent|respond|predict|generate|^_?run$/i.test(apiName)}];
+      likelyAgent: /chat|agent|respond|predict|generate|solve|^_?run$/i.test(apiName)}];
   });
 }
 function messageIndex(e: GradioEndpoint): number {
   const strings = e.inputs.map((p, i) => ({p, i})).filter(({p}) => p.type === 'string' || p.type === 'str');
-  const named = strings.filter(({p}) => /^(message|user_message|prompt|text|query|input|user_input)$/i.test(p.name));
+  const named = strings.filter(({p}) => /^(message|user_message|prompt|text|query|input|user_input|user_query)$/i.test(p.name));
   return named.length === 1 ? named[0].i : named.length === 0 && strings.length === 1 && e.likelyAgent ? strings[0].i : -1;
 }
 export function assistantOutputIndex(e: GradioEndpoint): number {
