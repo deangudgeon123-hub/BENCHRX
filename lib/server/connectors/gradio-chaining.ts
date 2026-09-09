@@ -15,12 +15,14 @@ function chatbotBridgeRecipe(
   outputIndex: (e: GradioEndpoint) => number,
 ): ConnectorRecipe | null {
   // Some Gradio apps expose only the visible textbox return from log_user_message,
-  // while their dependency graph also wires a hidden Chatbot value into the agent step.
-  // When that graph link is explicit, invoke the agent endpoint with the equivalent
-  // messages-format user turn instead of guessing a hidden positional API output.
+  // while their dependency graph also wires hidden stored-message/chatbot/session values
+  // into the agent step. When the graph proves exactly one shared component between
+  // those steps, use the exposed messages API directly rather than guessing hidden
+  // positional arguments.
   if (first.inputCount !== 1 || !stringParam(first.inputs[0])) return null;
   if (second.inputCount !== 1 || !arrayParam(second.inputs[0])) return null;
-  if (secondInputs.length !== 1 || !firstOutputs.includes(secondInputs[0])) return null;
+  const linkedComponents = [...new Set(firstOutputs.filter(id => secondInputs.includes(id)))];
+  if (linkedComponents.length !== 1) return null;
   const finalOutput = outputIndex(second);
   if (finalOutput < 0) return null;
   const inputs = JSON.stringify([[{role: 'user', content: '{{message}}'}]]);
@@ -51,7 +53,7 @@ export function statefulRecipes(spaceUrl: string, endpoints: GradioEndpoint[], r
 
   const bridge = chatbotBridgeRecipe(spaceUrl, first, second, aOut, bIn, outputIndex);
 
-  // Hidden component outputs can make API-schema counts differ from dependency-graph counts.
+  // Hidden component inputs/outputs can make API-schema counts differ from dependency-graph counts.
   // Use the explicit Chatbot bridge above when that exact declared link is present.
   if (aIn.length !== first.inputCount || aOut.length !== first.outputCount || bIn.length !== second.inputCount || bOut.length !== second.outputCount) {
     return bridge ? [bridge] : [];
