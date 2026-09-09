@@ -7,7 +7,7 @@ const target = {url: new URL('https://example.com'), hostname: 'example.com', ad
 
 // Travel Agent /gradio_api/info: four Textboxes -> one Markdown output.
 // Live Gradio 6.20.0 emits heartbeat events while plan_trip is still running.
-test('structured Gradio polling can complete after 18 seconds within the existing workflow budget', async t => {
+test('structured Gradio polling can complete after 18 seconds within the bounded workflow budget', async t => {
   let now = 1000;
   t.mock.method(Date, 'now', () => now);
   const plan = parsePlan('["London","Paris","October","{{message}}"]', 'plan_trip', '0');
@@ -19,8 +19,8 @@ test('structured Gradio polling can complete after 18 seconds within the existin
       return {status: 200, headers: {}, text: '{"event_id":"travel-event"}'};
     }
     assert.equal(url.url.pathname, '/gradio_api/call/plan_trip/travel-event');
-    assert.equal(options.timeoutMs, 44000, 'poll must use the remaining total budget');
-    now += 24000;
+    assert.equal(options.timeoutMs, 124000, 'poll must use the remaining total budget');
+    now += 112000;
     return {status: 200, headers: {}, text: 'event: heartbeat\ndata: null\n\nevent: complete\ndata: ["Trip fixture"]\n\n'};
   });
   assert.deepEqual(result, ['Trip fixture']);
@@ -37,7 +37,7 @@ test('shared-session steps consume one deadline; heartbeats and partial output a
       return {status: 200, headers: {}, text: '{"event_id":"ours"}'};
     }
     assert.equal(url.url.pathname, '/gradio_api/queue/data');
-    assert.equal(options.timeoutMs, polls === 0 ? 44000 : 19000);
+    assert.equal(options.timeoutMs, polls === 0 ? 124000 : 99000);
     now += polls === 0 ? 24000 : 1000;
     return {status: 200, headers: {}, text: ++polls === 1
       ? 'data: {"msg":"process_completed","event_id":"ours","success":true,"output":{"data":["state"]}}\n\n'
@@ -60,7 +60,7 @@ test('a depleted shared workflow deadline prevents another submit', async t => {
   const plan = parsePlan(JSON.stringify({steps: [{apiName: 'prepare', inputs: ['{{message}}']}, {apiName: 'answer', inputs: ['{{step0}}']}]}), '', '0');
   await assert.rejects(executeGradioPlan(target, plan, 'fixture', async (_url, options) => {
     if (options.method === 'POST') {submits++; return {status: 200, headers: {}, text: '{"event_id":"ours"}'};}
-    now += 45000;
+    now += 125000;
     return {status: 200, headers: {}, text: 'data: {"msg":"process_completed","event_id":"ours","success":true,"output":{"data":["state"]}}\n\n'};
   }), e => e instanceof GradioInvocationError && e.stage === 'submit' && e.code === 'timeout');
   assert.equal(submits, 1);
