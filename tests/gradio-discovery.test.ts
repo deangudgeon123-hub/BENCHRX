@@ -41,6 +41,23 @@ test('multi-input agents can use declared safe UI control defaults without inven
   assert.deepEqual(JSON.parse(d.recipes[0].config.inputs), ['{{message}}', 5, 240, 'Qwen/Qwen2.5-7B-Instruct', ['Base_Generator_Tool', 'Python_Coder_Tool']]);
   assert.equal(d.recipes[0].config.outputIndex, '0');
 });
+test('agent-like endpoints can recover conversational array outputs when Gradio omits the Chatbot component', async () => {
+  const withDefault = (p: Record<string, unknown>, value: unknown) => ({...p, parameter_has_default: true, parameter_default: value});
+  const schemaOnly = {named_endpoints: {'/solve_problem_gradio': {
+    parameters: [
+      param('user_query'),
+      withDefault(param('max_steps', 'number', 'Slider'), 5),
+      withDefault(param('max_time', 'number', 'Slider'), 240),
+      withDefault(param('llm_model_engine', 'string', 'Dropdown'), 'Qwen/Qwen2.5-7B-Instruct'),
+      withDefault(param('enabled_tools', 'array', 'CheckboxGroup'), ['Base_Generator_Tool']),
+    ],
+    returns: [{parameter_name: 'Step-wise Problem-Solving Output', type: {type: 'array'}, component: ''}],
+  }}};
+  const d = await discoverGradio('https://demo.hf.space', ioFor(schemaOnly));
+  assert.equal(d.status, 'proposed'); assert.equal(d.recipes.length, 1);
+  assert.equal(d.recipes[0].config.apiName, 'solve_problem_gradio');
+  assert.equal(d.recipes[0].config.outputIndex, '0');
+});
 test('discovery does not expose schema examples, descriptions or free-form string defaults', async () => {
   const d = await discoverGradio('https://demo.hf.space', ioFor({named_endpoints: {'/chat': {...endpoint, description: 'secret-value', parameters: [param('message'), {...param('api_key'), parameter_has_default: true, parameter_default: 'secret-value'}]}}}));
   assert.equal(JSON.stringify(d).includes('secret-value'), false); assert.equal(d.status, 'manual_required');
