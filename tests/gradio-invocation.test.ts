@@ -70,7 +70,9 @@ test('single-step Gradio 6 falls back from legacy 404 to v2 named-argument queue
       assert.deepEqual(JSON.parse(o.body!), {question: 'fixture'});
       return {status: 200, headers: {}, text: '{"event_id":"event-v2"}'};
     }
-    assert.equal(t.url.pathname, '/gradio_api/call/v2/ask_council/event-v2');
+    // Gradio 6.20.0 routes.py registers both GET paths to simple_predict_get.
+    // A named v2 submit does not require switching the established result route.
+    assert.equal(t.url.pathname, '/gradio_api/call/ask_council/event-v2');
     return {status: 200, headers: {}, text: 'event: complete\ndata: ["Council connected"]\n\n'};
   }});
   const r = await invokeNormalizedConnector(provider, new URLSearchParams({space: target.url.href, apiName: 'ask_council', inputs: '["{{message}}"]', outputIndex: '0'}), {message: 'fixture'});
@@ -79,7 +81,7 @@ test('single-step Gradio 6 falls back from legacy 404 to v2 named-argument queue
     'POST /gradio_api/call/ask_council',
     'GET /gradio_api/info',
     'POST /gradio_api/call/v2/ask_council',
-    'GET /gradio_api/call/v2/ask_council/event-v2',
+    'GET /gradio_api/call/ask_council/event-v2',
   ]);
 });
 
