@@ -129,3 +129,12 @@ fit or successful invocation. Known stateful recipes retain their proven wiring.
 No scoring, media fixtures, UI secrets or benchmark runner changes were introduced.
 
 Verification: 61 focused tests, typecheck and production build pass.
+
+## Stage 7: complete regression matrix
+
+See GRADIO-REGRESSION-MATRIX.md for all 18 requested fixture categories and commands.
+Added explicit malformed event-ID/submit-JSON coverage. All 79 Node tests, typecheck,
+production build and 29 worker hashes pass. Python verification is environment-blocked
+(missing pytest; dependency installation unavailable), not a claimed pass.
+Cumulative diff inspection found no unrelated changes, new raw logging, secrets,
+Space-specific runtime dispatch, scoring changes or security-architecture changes.
