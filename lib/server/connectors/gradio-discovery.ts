@@ -6,6 +6,7 @@ import {parsePlan, parseGradioTemplate} from '../gradio-workflow.ts';
 import {schemaCapabilities, enrichSchemaGraph} from './gradio-schema.ts';
 import {inferMessageInput, isSensitiveParameter, messageInputValue} from './gradio-input.ts';
 import {provenMessageShape} from './gradio-message-shape.ts';
+import {classifyGradioEndpoint} from './gradio-compatibility.ts';
 
 const URL_OPTIONS = {invalidUrlMessage: 'Enter a public Gradio or Hugging Face Space URL.', httpsRequiredMessage: 'Discovery requires a public HTTPS Space.'};
 const object = (v: unknown): Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {};
@@ -214,9 +215,12 @@ export async function discoverGradio(raw: string, io: ConnectorIO = publicConnec
   const direct = singleStepRecipes(space.url.origin, standalone);
   const directNames = new Set(direct.map(recipe => recipe.config.apiName));
   const structured = structuredInputRecipes(space.url.origin, standalone.filter(e => !directNames.has(e.apiName)));
-  const recipes = [...workflows, ...direct, ...structured];
+  const candidates = [...workflows, ...direct, ...structured];
+  endpoints = endpoints.map(e => ({...e, capabilities: classifyGradioEndpoint(e, candidates, assistantOutputIndex(e))}));
+  const unsupported = new Set(endpoints.filter(e => e.capabilities.textSuite === 'unsupported_inputs' || e.capabilities.textSuite === 'no_text_interface').map(e => e.apiName));
+  const recipes = candidates.filter(r => !unsupported.has(r.config.apiName));
   const hasRequired = recipes.some(recipe => recipe.config.inputs.includes('<REQUIRED:'));
   return {provider: 'gradio', spaceUrl: space.url.origin, endpoints, recipes,
     status: recipes.length === 1 ? 'proposed' : recipes.length > 1 ? 'ambiguous' : 'manual_required',
-    message: recipes.length === 1 && hasRequired ? 'Structured input template found. Fill every REQUIRED placeholder with a fixed value, then test the connection.' : recipes.length === 1 ? 'Review the proposed recipe and test the connection before benchmarking.' : recipes.length > 1 ? 'Several endpoints fit. Choose and test a recipe; BENCHRX has not selected one.' : 'No unambiguous supported recipe was found. Use the exposed schema to configure manually.'};
+    message: recipes.length === 1 && hasRequired ? 'Structured input template found. Fill every REQUIRED placeholder with a fixed value, then test the connection.' : recipes.length === 1 ? 'Review the proposed recipe and test the connection before benchmarking.' : recipes.length > 1 ? 'Several endpoints fit. Choose and test a recipe; BENCHRX has not selected one.' : endpoints.some(e => e.capabilities.reason === 'requires_media_fixture') ? 'Public Gradio endpoints were recognized, but required media inputs are not supplied by the current text-agent suite. No automatic benchmark recipe is offered.' : 'No unambiguous supported recipe was found. Use the exposed schema to configure manually.'};
 }

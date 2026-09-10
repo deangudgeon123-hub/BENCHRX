@@ -118,3 +118,14 @@ Credential names cannot acquire that exception through a spoofed label.
 
 Verification: 58 focused tests, typecheck and production build pass. Live schema replay
 recognizes the input shape and preserves the unproven-output manual fallback.
+
+## Stage 6: invocation versus text-suite capability
+
+Discovery now records independent invocation and text-suite signals with fixed reason
+codes. Schema-valid endpoints requiring media remain visible but produce no automatic
+benchmark recipe. Zero-input/output helpers have no text interface. Unresolved static
+inputs are templates; executable text interfaces are candidates, not claims of purpose
+fit or successful invocation. Known stateful recipes retain their proven wiring.
+No scoring, media fixtures, UI secrets or benchmark runner changes were introduced.
+
+Verification: 61 focused tests, typecheck and production build pass.

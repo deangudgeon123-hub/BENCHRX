@@ -35,7 +35,9 @@ export type GradioDependency = {
 export type GradioCapabilities = {
   textInputCandidates: number[]; structuredInputCandidates: number[];
   assistantOutputCandidates: number[];
-  invocation: 'unverified'; textSuite: 'unverified';
+  invocation: 'unverified' | 'recipe_available' | 'requires_inputs' | 'manual_required';
+  textSuite: 'unverified' | 'text_candidate' | 'requires_fixed_inputs' | 'unsupported_inputs' | 'manual_required' | 'no_text_interface';
+  reason?: 'requires_media_fixture' | 'message_mapping_unproven' | 'output_mapping_unproven' | 'operator_values_required' | 'text_interface_candidate' | 'no_text_interface';
   workflow: 'unknown' | 'dependency_declared' | 'shared_state_required';
 };
 export type GradioEndpoint = {
