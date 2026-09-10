@@ -17,6 +17,12 @@ from models.payloads import TriggerPayload
 from services.worker_auth import require_worker_auth
 from services.execution_guard import ExecutionGuard
 
+
+def queue_polling_enabled() -> bool:
+    """Poll persisted queued/expired runs unless explicitly disabled."""
+    return os.getenv("BENCHRX_POLL_QUEUE", "1") != "0" and len(os.getenv("BENCHMARK_API_SECRET", "")) >= 32
+
+
 async def dispatch_loop():
     # Persisted queued/expired work survives failed HTTP triggers and worker restarts.
     while True:
@@ -33,7 +39,7 @@ async def dispatch_loop():
 @asynccontextmanager
 async def lifespan(app):
     task = None
-    if os.getenv("BENCHRX_POLL_QUEUE") == "1" and len(os.getenv("BENCHMARK_API_SECRET", "")) >= 32:
+    if queue_polling_enabled():
         task = asyncio.create_task(dispatch_loop())
     yield
     if task:
