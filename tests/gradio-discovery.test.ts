@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {discoverGradio, parseGradioSchema, singleStepRecipes, structuredInputRecipes} from '../lib/server/connectors/gradio-discovery.ts';
+import {assistantOutputIndex, discoverGradio, parseGradioSchema, singleStepRecipes, structuredInputRecipes} from '../lib/server/connectors/gradio-discovery.ts';
 import type {ConnectorIO} from '../lib/server/connectors/interface.ts';
 const param = (name: string, type = 'string', component = 'Textbox') => ({parameter_name: name, type: {type}, component});
 const endpoint = {parameters: [param('message')], returns: [param('answer')]};
@@ -20,7 +20,7 @@ test('single-step discovery proposes the existing manual recipe format without i
 test('single unresolved output fetches config and uses proven Chatbot metadata', async () => {
   const unresolved = {named_endpoints: {'/chat': {
     parameters: [param('message')],
-    returns: [{parameter_name: 'Response', type: {type: 'object'}, component: ''}],
+    returns: [{parameter_name: 'value_2', type: {type: 'object'}, component: ''}],
   }}};
   const config = {
     dependencies: [{api_name: 'chat', inputs: [1], outputs: [2]}],
@@ -46,6 +46,23 @@ test('single unresolved output fetches config and uses proven Chatbot metadata',
   assert.equal(d.recipes.length, 1);
   assert.deepEqual(d.recipes[0].config, {space: 'https://demo.hf.space', apiName: 'chat', inputs: '["{{message}}"]', outputIndex: '0'});
   assert.equal(d.endpoints[0].outputs[0].component, 'chatbot');
+});
+test('agent-like endpoints recognize one conversational JSON object output before or after component enrichment', () => {
+  const bare = parseGradioSchema({named_endpoints: {'/chat': {
+    parameters: [param('message')],
+    returns: [{parameter_name: 'Response', type: {type: 'object'}, component: ''}],
+  }}});
+  const enriched = parseGradioSchema({named_endpoints: {'/chat': {
+    parameters: [param('message')],
+    returns: [{parameter_name: 'Response', type: {type: 'object'}, component: 'JSON'}],
+  }}});
+  const unrelated = parseGradioSchema({named_endpoints: {'/chat': {
+    parameters: [param('message')],
+    returns: [{parameter_name: 'Response', type: {type: 'object'}, component: 'Dataframe'}],
+  }}});
+  assert.equal(assistantOutputIndex(bare[0]), 0);
+  assert.equal(assistantOutputIndex(enriched[0]), 0);
+  assert.equal(assistantOutputIndex(unrelated[0]), -1);
 });
 test('ambiguous endpoints require a choice; unknown parameters require manual configuration', async () => {
   const d = await discoverGradio('https://demo.hf.space', ioFor({named_endpoints: {'/chat': endpoint, '/agent': endpoint}}));
