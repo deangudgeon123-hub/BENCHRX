@@ -19,6 +19,7 @@ export type GradioParameter = {
   declaredDefault: boolean;
   defaultSafety: 'absent' | 'safe' | 'redacted';
   state: boolean;
+  messageShape: 'text_files' | null;
   hidden: boolean | null;
   componentId?: number;
   wireIndex?: number;

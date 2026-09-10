@@ -4,19 +4,20 @@ import type {ValidatedHttpsTarget} from '../pinned-https.ts';
 import {statefulRecipes} from './gradio-chaining.ts';
 import {parsePlan, parseGradioTemplate} from '../gradio-workflow.ts';
 import {schemaCapabilities, enrichSchemaGraph} from './gradio-schema.ts';
-import {inferMessageInput, isSensitiveParameter} from './gradio-input.ts';
+import {inferMessageInput, isSensitiveParameter, messageInputValue} from './gradio-input.ts';
+import {provenMessageShape} from './gradio-message-shape.ts';
 
 const URL_OPTIONS = {invalidUrlMessage: 'Enter a public Gradio or Hugging Face Space URL.', httpsRequiredMessage: 'Discovery requires a public HTTPS Space.'};
 const object = (v: unknown): Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {};
 const label = (v: unknown): string => typeof v === 'string' ? v.slice(0, 100) : '';
-const SENSITIVE_NAME = /api[\s_-]?key|token|secret|password|credential|authorization|bearer/i;
 
 // Expose only harmless defaults. Free-form text defaults can contain credentials or
 // private prompt material, so keep them redacted. Declared selection controls are
 // different: their current value is part of the public UI configuration and is needed
 // to invoke multi-input agents without inventing values.
-function safeDefault(v: unknown, component: string, name = ''): boolean {
-  if (SENSITIVE_NAME.test(name)) return false;
+function safeDefault(v: unknown, component: string, parameter: Pick<GradioParameter, 'name' | 'label' | 'type'>): boolean {
+  const name = parameter.name;
+  if (isSensitiveParameter(parameter)) return false;
   if (v === null || v === '' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v)) ||
       (Array.isArray(v) && v.length === 0) || (v !== null && typeof v === 'object' && Object.keys(v).length === 0)) return true;
   if (/^(dropdown|radio)$/i.test(component)) return typeof v === 'string' && v.length <= 200 || typeof v === 'number' && Number.isFinite(v);
@@ -51,12 +52,13 @@ function parameter(raw: unknown, index: number): GradioParameter {
   const p = object(raw), type = object(p.type), python = object(p.python_type);
   const component = label(p.component).toLowerCase();
   const name = label(p.parameter_name || p.label) || `parameter_${index}`;
-  const hasDefault = p.parameter_has_default === true && safeDefault(p.parameter_default, component, name + ' ' + label(p.label)) && defaultMatchesType(p.parameter_default, type);
+  const hasDefault = p.parameter_has_default === true && safeDefault(p.parameter_default, component, {name, label: label(p.label), type: label(type.type || python.type)}) && defaultMatchesType(p.parameter_default, type);
   return {name, type: label(type.type || python.type), component, hasDefault,
     label: label(p.label), required: typeof p.parameter_has_default === 'boolean' ? !p.parameter_has_default : null,
     declaredDefault: p.parameter_has_default === true,
     defaultSafety: p.parameter_has_default !== true ? 'absent' : hasDefault ? 'safe' : 'redacted',
     state: component === 'state', hidden: component === 'state' ? true : null,
+    messageShape: provenMessageShape(raw),
     ...(hasDefault ? {defaultValue: p.parameter_default} : {})};
 }
 export function parseGradioSchema(raw: unknown): GradioEndpoint[] {
@@ -139,7 +141,7 @@ export function singleStepRecipes(spaceUrl: string, endpoints: GradioEndpoint[])
   return endpoints.flatMap(e => {
     const message = inferMessageInput(e).index, output = assistantOutputIndex(e);
     if (message < 0 || output < 0 || e.inputs.some(p => isSensitiveParameter(p)) || e.inputs.some((p, i) => i !== message && (!p.hasDefault || p.component === 'state'))) return [];
-    const inputs = e.inputs.map((p, i) => i === message ? '{{message}}' : p.defaultValue);
+    const inputs = e.inputs.map((p, i) => i === message ? messageInputValue(p) : p.defaultValue);
     const config = {space: spaceUrl, apiName: e.apiName, inputs: JSON.stringify(inputs), outputIndex: String(output)};
     parsePlan(config.inputs, config.apiName, config.outputIndex);
     return [{provider: 'gradio' as const, label: `/${e.apiName}`, kind: 'executable' as const, requiredInputs: [], config}];
@@ -155,7 +157,7 @@ export function structuredInputRecipes(spaceUrl: string, endpoints: GradioEndpoi
     const message = inferMessageInput(e).index, output = assistantOutputIndex(e);
     if (message < 0 || output < 0 || e.inputs.some(p => p.component === 'state' || isSensitiveParameter(p))) return [];
     const inputs = e.inputs.map((p, i) => {
-      if (i === message) return '{{message}}';
+      if (i === message) return messageInputValue(p);
       if (p.hasDefault) return p.defaultValue;
       return `<REQUIRED:${p.name}>`;
     });

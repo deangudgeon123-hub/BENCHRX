@@ -98,3 +98,23 @@ Unsafe/duplicate named keys are rejected. Existing successful legacy/session pat
 Verification: 55 focused tests, typecheck and production build pass. Regression cases
 include no retry on auth/429/500/redirect errors, unsupported 404, failed alternative,
 private/ambiguous queue metadata, named v2, and existing First Agent/Frontier paths.
+
+## Stage 5: schema-proven object inputs
+
+Public MedGemma info proves MultimodalTextbox/MultimodalData with text:string and
+files:array. Added a conservative recognizer that emits text plus an empty files array;
+unknown objects, extra constraints or required uploads remain manual. No file uploads,
+arbitrary role/content guesses or multimodal scoring were added. Normal string inputs
+retain their old payload. Other input defaults must still be declared and safe.
+
+The live MedGemma output is currently JSON with an unconstrained type, not the string
+output in the task's reference description. Its input is recognized, but full discovery
+correctly remains manual because assistant output mapping is unproven. No live medical
+inference was run. Public output/default/description content is not copied to diagnostics.
+
+Numeric generation limits (e.g. a declared Max New Tokens Slider) are distinguished
+from credential tokens using numeric schema plus exact control name/label evidence.
+Credential names cannot acquire that exception through a spoofed label.
+
+Verification: 58 focused tests, typecheck and production build pass. Live schema replay
+recognizes the input shape and preserves the unproven-output manual fallback.

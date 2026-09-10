@@ -1,6 +1,6 @@
 import type {ConnectorRecipe, GradioEndpoint} from '../../connectors/types.ts';
 import {parsePlan} from '../gradio-workflow.ts';
-import {inferMessageInput} from './gradio-input.ts';
+import {inferMessageInput, messageInputValue} from './gradio-input.ts';
 
 const obj = (v: unknown): Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {};
 const stateful = (p: GradioEndpoint['inputs'][number]) => /state|chatbot/i.test(p.component) || /history|state|context/i.test(p.name);
@@ -79,7 +79,7 @@ export function statefulRecipes(spaceUrl: string, endpoints: GradioEndpoint[], r
   const messageIndex = inferMessageInput(first).index;
   if (messageIndex < 0) return bridge ? [bridge] : [];
   if (first.inputs.some((p, i) => i !== messageIndex && !p.hasDefault)) return bridge ? [bridge] : [];
-  const initial = first.inputs.map((p, i) => i === messageIndex ? '{{message}}' : p.defaultValue);
+  const initial = first.inputs.map((p, i) => i === messageIndex ? messageInputValue(p) : p.defaultValue);
   let linked = 0;
   const next: unknown[] = [];
   for (let i = 0; i < second.inputs.length; i++) {

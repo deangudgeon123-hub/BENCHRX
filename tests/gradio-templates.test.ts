@@ -39,6 +39,8 @@ test('sensitive defaults are redacted before primitive shortcuts or control chec
   }
   const endpoints = parse([p('question'), {...declared(p('parameter_1', 'string', 'Dropdown'), 'private-value'), label: 'API key'}]);
   assert.equal(JSON.stringify(endpoints).includes('private-value'), false);
+  const spoofed = parse([p('question'), {...declared(p('access_token', 'number', 'Slider'), 12345), label: 'Max new tokens'}]);
+  assert.equal(spoofed[0].inputs[1].hasDefault, false);
 });
 
 test('unresolved templates cannot reach transport, including nested values and workflow steps', async () => {

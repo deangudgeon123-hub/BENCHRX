@@ -12,14 +12,26 @@ const MESSAGE_ROLES = new Set([
 const CONFIG_FIELD = /api.?key|token|secret|password|credential|authorization|bearer|model|engine|backend|provider|system|selector/i;
 const FIXED_FIELD = /^(origin|destination|month|city|country|region|language|option(?: [a-z0-9]+)?|choice(?: [a-z0-9]+)?)$/;
 
-export function isSensitiveParameter(p: Pick<GradioParameter, 'name' | 'label'>): boolean {
-  return /api.?key|token|secret|password|credential|authorization|bearer/i.test(p.name + ' ' + p.label);
+export function isSensitiveParameter(p: Pick<GradioParameter, 'name' | 'label'> & {type?: string}): boolean {
+  const names = p.name + ' ' + p.label;
+  if (/api.?key|secret|password|credential|authorization|bearer/i.test(names)) return true;
+  // Numeric generation limits are not authentication tokens. Preserve their declared
+  // defaults only with both numeric schema and an exact, known limit name/label.
+  const limit = /^(max tokens|max new tokens|max output tokens|min tokens|token limit)$/;
+  const namedLimit = limit.test(normalize(p.name)) && (!/token/i.test(p.label) || limit.test(normalize(p.label)));
+  const labeledLimit = /^(param|parameter)[_ ]?\d+$/i.test(p.name) && limit.test(normalize(p.label));
+  if (/^(number|integer|int|float)$/.test(p.type ?? '') && (namedLimit || labeledLimit)) return false;
+  return /token/i.test(names);
 }
 
 export function isTextMessageParameter(p: GradioParameter): boolean {
-  return /^(string|str)$/.test(p.type) && !p.state && p.hidden !== true &&
-    /^(textbox|text|textarea)?$/.test(p.component) &&
+  return !p.state && p.hidden !== true &&
+    (p.messageShape === 'text_files' || /^(string|str)$/.test(p.type) && /^(textbox|text|textarea)?$/.test(p.component)) &&
     !CONFIG_FIELD.test(p.name) && !CONFIG_FIELD.test(p.label);
+}
+
+export function messageInputValue(p: GradioParameter): unknown {
+  return p.messageShape === 'text_files' ? {text: '{{message}}', files: []} : '{{message}}';
 }
 
 export type MessageInference = {
