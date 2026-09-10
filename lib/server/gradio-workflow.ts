@@ -164,6 +164,63 @@ export function replacePlaceholders(value: unknown, message: unknown, stepResult
   return value;
 }
 
+async function requestOrInvocationError(
+  target: ValidatedHttpsTarget,
+  options: Parameters<typeof pinnedHttpsRequest>[1],
+  stage: 'submit' | 'poll',
+  transport: typeof pinnedHttpsRequest,
+) {
+  return transport(target, options).catch(error => {
+    throw new GradioInvocationError(stage, error instanceof PinnedRequestTimeoutError ? 'timeout' : 'transport');
+  });
+}
+
+async function gradio6NamedSubmit(
+  space: ValidatedHttpsTarget,
+  step: WorkflowStep,
+  data: unknown[],
+  deadline: number,
+  transport: typeof pinnedHttpsRequest,
+) {
+  const info = await requestOrInvocationError(withPath(space, '/gradio_api/info'), {
+    method: 'GET',
+    headers: {Accept: 'application/json'},
+    timeoutMs: remainingTime(deadline),
+    maxResponseBytes: MAX_RESPONSE_BYTES,
+  }, 'submit', transport);
+  if (info.status < 200 || info.status >= 300) return null;
+
+  let schema: JsonObject;
+  try {schema = JSON.parse(info.text) as JsonObject;} catch {return null;}
+  const named = schema.named_endpoints;
+  if (!named || typeof named !== 'object' || Array.isArray(named)) return null;
+  const endpoint = (named as JsonObject)[`/${step.apiName}`];
+  if (!endpoint || typeof endpoint !== 'object' || Array.isArray(endpoint)) return null;
+  const parameters = (endpoint as JsonObject).parameters;
+  if (!Array.isArray(parameters) || parameters.length !== data.length) return null;
+
+  const namedBody: JsonObject = {};
+  for (let index = 0; index < parameters.length; index++) {
+    const raw = parameters[index];
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const name = String((raw as JsonObject).parameter_name ?? '');
+    if (!/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name) || Object.hasOwn(namedBody, name)) return null;
+    namedBody[name] = data[index];
+  }
+
+  let body: string;
+  try {body = JSON.stringify(namedBody);} catch {throw new GradioInvocationError('payload', 'serialization');}
+  const target = withPath(space, `/gradio_api/call/v2/${encodeURIComponent(step.apiName)}`);
+  const response = await requestOrInvocationError(target, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body,
+    timeoutMs: remainingTime(deadline),
+    maxResponseBytes: MAX_RESPONSE_BYTES,
+  }, 'submit', transport);
+  return {response, pollV2: true};
+}
+
 async function callPinnedSingleStep(
   space: ValidatedHttpsTarget,
   step: WorkflowStep,
@@ -176,13 +233,23 @@ async function callPinnedSingleStep(
   let body: string;
   try {body = JSON.stringify({data, ...(sessionHash ? {session_hash: sessionHash} : {})});}
   catch {throw new GradioInvocationError('payload', 'serialization');}
-  const submitResponse = await transport(submitTarget, {
+  let submitResponse = await requestOrInvocationError(submitTarget, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body,
     timeoutMs: remainingTime(deadline),
     maxResponseBytes: MAX_RESPONSE_BYTES,
-  }).catch(error => {throw new GradioInvocationError('submit', error instanceof PinnedRequestTimeoutError ? 'timeout' : 'transport');});
+  }, 'submit', transport);
+  let pollV2 = false;
+
+  // Gradio 6 can intentionally return 404 from the legacy simple-call route when
+  // api_open is false, while its v2 named-argument route still joins the queue.
+  // Preserve the established Gradio 5 path first; only probe v2 for single-step
+  // calls after that specific compatibility signal.
+  if (submitResponse.status === 404 && !sessionHash) {
+    const fallback = await gradio6NamedSubmit(space, step, data, deadline, transport);
+    if (fallback) {submitResponse = fallback.response; pollV2 = fallback.pollV2;}
+  }
 
   if (submitResponse.status < 200 || submitResponse.status >= 300) {
     throw new GradioInvocationError('submit', 'http_status', submitResponse.status);
@@ -204,16 +271,16 @@ async function callPinnedSingleStep(
   const pollTarget = withPath(
     space,
     sessionHash ? `/gradio_api/queue/data?session_hash=${encodeURIComponent(sessionHash)}` :
-      `/gradio_api/call/${encodeURIComponent(step.apiName)}/${encodeURIComponent(eventId)}`
+      `/gradio_api/call${pollV2 ? '/v2' : ''}/${encodeURIComponent(step.apiName)}/${encodeURIComponent(eventId)}`
   );
-  const pollResponse = await transport(pollTarget, {
+  const pollResponse = await requestOrInvocationError(pollTarget, {
     method: "GET",
     headers: { Accept: "text/event-stream" },
     // SSE is one long-lived response: use the remaining workflow budget, not the
     // short submit timeout. Heartbeats must not reset the absolute deadline.
     timeoutMs: remainingTime(deadline, 'poll'),
     maxResponseBytes: MAX_RESPONSE_BYTES,
-  }).catch(error => {throw new GradioInvocationError('poll', error instanceof PinnedRequestTimeoutError ? 'timeout' : 'transport');});
+  }, 'poll', transport);
 
   if (pollResponse.status < 200 || pollResponse.status >= 300) {
     throw new GradioInvocationError('poll', 'http_status', pollResponse.status);
