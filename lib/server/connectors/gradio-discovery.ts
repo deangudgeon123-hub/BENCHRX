@@ -3,6 +3,7 @@ import {publicConnectorIO, type ConnectorIO} from './interface.ts';
 import type {ValidatedHttpsTarget} from '../pinned-https.ts';
 import {statefulRecipes} from './gradio-chaining.ts';
 import {parsePlan} from '../gradio-workflow.ts';
+import {schemaCapabilities, enrichSchemaGraph} from './gradio-schema.ts';
 
 const URL_OPTIONS = {invalidUrlMessage: 'Enter a public Gradio or Hugging Face Space URL.', httpsRequiredMessage: 'Discovery requires a public HTTPS Space.'};
 const object = (v: unknown): Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {};
@@ -33,7 +34,12 @@ function parameter(raw: unknown, index: number): GradioParameter {
   const component = label(p.component).toLowerCase();
   const name = label(p.parameter_name || p.label) || `parameter_${index}`;
   const hasDefault = p.parameter_has_default === true && safeDefault(p.parameter_default, component, name);
-  return {name, type: label(type.type || python.type), component, hasDefault, ...(hasDefault ? {defaultValue: p.parameter_default} : {})};
+  return {name, type: label(type.type || python.type), component, hasDefault,
+    label: label(p.label), required: typeof p.parameter_has_default === 'boolean' ? !p.parameter_has_default : null,
+    declaredDefault: p.parameter_has_default === true,
+    defaultSafety: p.parameter_has_default !== true ? 'absent' : hasDefault ? 'safe' : 'redacted',
+    state: component === 'state', hidden: component === 'state' ? true : null,
+    ...(hasDefault ? {defaultValue: p.parameter_default} : {})};
 }
 export function parseGradioSchema(raw: unknown): GradioEndpoint[] {
   const named = object(object(raw).named_endpoints);
@@ -44,7 +50,8 @@ export function parseGradioSchema(raw: unknown): GradioEndpoint[] {
     if (e.parameters.length > 32 || e.returns.length > 32) return [];
     const inputs = e.parameters.map(parameter), outputs = e.returns.map(parameter);
     return [{apiName, inputs, outputs, inputCount: inputs.length, outputCount: outputs.length,
-      likelyAgent: /chat|agent|respond|predict|generate|solve|plan|^_?run$/i.test(apiName)}];
+      likelyAgent: /chat|agent|respond|predict|generate|solve|plan|^_?run$/i.test(apiName),
+      capabilities: schemaCapabilities(inputs, outputs)}];
   });
 }
 
@@ -185,7 +192,7 @@ export async function discoverGradio(raw: string, io: ConnectorIO = publicConnec
   if (needsConfig) {
     try {
       rawConfig = await readJson({...space, url: new URL('/config', space.url.origin)}, io);
-      endpoints = enrichOutputMetadata(endpoints, rawConfig);
+      endpoints = enrichSchemaGraph(enrichOutputMetadata(endpoints, rawConfig), rawConfig);
     } catch { /* Optional config enrichment unavailable: preserve schema-only discovery/manual fallback. */ }
   }
   let workflows: ConnectorRecipe[] = [];

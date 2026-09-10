@@ -33,3 +33,15 @@ Verified source: https://github.com/gradio-app/gradio/blob/gradio%406.20.0/gradi
 
 Deferred scoring issue: Finance/Gemini model/dependency failures may arrive as ordinary
 successful Gradio text outputs. This task must not reinterpret them or change scoring.
+
+## Stage 1: additive schema/capability normalization
+
+Parameters now distinguish required/optional/unknown and absent/safe/redacted defaults.
+Only safe values survive serialization. Capability candidates do not claim invocation
+success or benchmark suitability. When config is already available, bounded graph
+normalization preserves State slots, wire indices, visible indices and dependencies
+without changing recipe selection, requests, deadlines or output extraction.
+
+Verification: 42 focused tests pass; typecheck and production build pass. Added tests
+cover safe-default metadata, State visibility/arity, duplicate/incomplete graph handling,
+multi-output capability candidates, malformed schemas and unchanged recipe generation.
