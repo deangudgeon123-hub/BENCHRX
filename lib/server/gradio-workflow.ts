@@ -218,7 +218,48 @@ async function gradio6NamedSubmit(
     timeoutMs: remainingTime(deadline),
     maxResponseBytes: MAX_RESPONSE_BYTES,
   }, 'submit', transport);
-  return {response, pollV2: true};
+  return response;
+}
+
+async function queueJoinSubmit(
+  space: ValidatedHttpsTarget,
+  step: WorkflowStep,
+  data: unknown[],
+  deadline: number,
+  transport: typeof pinnedHttpsRequest,
+) {
+  const config = await requestOrInvocationError(withPath(space, '/config'), {
+    method: 'GET',
+    headers: {Accept: 'application/json'},
+    timeoutMs: remainingTime(deadline),
+    maxResponseBytes: MAX_RESPONSE_BYTES,
+  }, 'submit', transport);
+  if (config.status < 200 || config.status >= 300) return null;
+
+  let raw: JsonObject;
+  try {raw = JSON.parse(config.text) as JsonObject;} catch {return null;}
+  if (!Array.isArray(raw.dependencies) || raw.dependencies.length > 128) return null;
+  const matches = raw.dependencies.filter(item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+    const name = String((item as JsonObject).api_name ?? '').replace(/^\//, '');
+    return name === step.apiName;
+  });
+  if (matches.length !== 1) return null;
+  const fnIndex = Number((matches[0] as JsonObject).id);
+  if (!Number.isSafeInteger(fnIndex) || fnIndex < 0) return null;
+
+  const fallbackSessionHash = randomUUID();
+  let body: string;
+  try {body = JSON.stringify({data, fn_index: fnIndex, session_hash: fallbackSessionHash});}
+  catch {throw new GradioInvocationError('payload', 'serialization');}
+  const response = await requestOrInvocationError(withPath(space, '/gradio_api/queue/join'), {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body,
+    timeoutMs: remainingTime(deadline),
+    maxResponseBytes: MAX_RESPONSE_BYTES,
+  }, 'submit', transport);
+  return {response, fallbackSessionHash};
 }
 
 async function callPinnedSingleStep(
@@ -240,15 +281,26 @@ async function callPinnedSingleStep(
     timeoutMs: remainingTime(deadline),
     maxResponseBytes: MAX_RESPONSE_BYTES,
   }, 'submit', transport);
-  let pollV2 = false;
+  let fallbackSessionHash: string | undefined;
 
-  // Gradio 6 can intentionally return 404 from the legacy simple-call route when
-  // api_open is false, while its v2 named-argument route still joins the queue.
-  // Preserve the established Gradio 5 path first; only probe v2 for single-step
-  // calls after that specific compatibility signal.
+  // Keep the established simple-call path first. Gradio 6.0 can expose an endpoint in
+  // /info while refusing direct /call requests; its stable queue/join transport remains
+  // usable when the public /config dependency graph identifies exactly one fn_index.
+  // Newer Gradio releases also expose /call/v2; try that before queue/join, but do not
+  // assume v2 exists (it was not present in Gradio 6.0.0).
   if (submitResponse.status === 404 && !sessionHash) {
-    const fallback = await gradio6NamedSubmit(space, step, data, deadline, transport);
-    if (fallback) {submitResponse = fallback.response; pollV2 = fallback.pollV2;}
+    const named = await gradio6NamedSubmit(space, step, data, deadline, transport);
+    if (named && named.status >= 200 && named.status < 300) {
+      submitResponse = named;
+    } else {
+      const queued = await queueJoinSubmit(space, step, data, deadline, transport);
+      if (queued) {
+        submitResponse = queued.response;
+        fallbackSessionHash = queued.fallbackSessionHash;
+      } else if (named) {
+        submitResponse = named;
+      }
+    }
   }
 
   if (submitResponse.status < 200 || submitResponse.status >= 300) {
@@ -268,10 +320,11 @@ async function callPinnedSingleStep(
       : "";
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(eventId)) throw new GradioInvocationError('event_id', 'invalid_event_id');
 
+  const queueSessionHash = sessionHash ?? fallbackSessionHash;
   const pollTarget = withPath(
     space,
-    sessionHash ? `/gradio_api/queue/data?session_hash=${encodeURIComponent(sessionHash)}` :
-      `/gradio_api/call${pollV2 ? '/v2' : ''}/${encodeURIComponent(step.apiName)}/${encodeURIComponent(eventId)}`
+    queueSessionHash ? `/gradio_api/queue/data?session_hash=${encodeURIComponent(queueSessionHash)}` :
+      `/gradio_api/call/${encodeURIComponent(step.apiName)}/${encodeURIComponent(eventId)}`
   );
   const pollResponse = await requestOrInvocationError(pollTarget, {
     method: "GET",
@@ -286,7 +339,7 @@ async function callPinnedSingleStep(
     throw new GradioInvocationError('poll', 'http_status', pollResponse.status);
   }
 
-  const completed = sessionHash ? parseQueueSseComplete(pollResponse.text, eventId) : parseSseComplete(pollResponse.text);
+  const completed = queueSessionHash ? parseQueueSseComplete(pollResponse.text, eventId) : parseSseComplete(pollResponse.text);
   const outputs = Array.isArray(completed) ? completed : [completed];
   if(step.outputIndex>=outputs.length) throw new GradioInvocationError('output', 'invalid_output');
   return { completed, outputs, selected: outputs[step.outputIndex] };
