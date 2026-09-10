@@ -132,11 +132,10 @@ export function assistantOutputIndex(e: GradioEndpoint): number {
   if (text.length === 1) return text[0].i;
 
   // Some Gradio versions expose conversational returns as array/list message history,
-  // while others expose one assistant message as a JSON object. Only neutral/unset or
-  // JSON components are eligible here; invocation must still extract assistant-authored
-  // text before the connection succeeds.
+  // object schemas, or the literal public wire type "json". Only neutral/unset or JSON
+  // components are eligible here; invocation must still extract assistant-authored text.
   const structured = e.outputs.map((p, i) => ({p, i})).filter(({p}) =>
-    (!p.component || p.component === 'json') && /^(array|list|object)$/.test(p.type) &&
+    (!p.component || p.component === 'json') && /^(array|list|object|json)$/.test(p.type) &&
     /assistant|answer|response|output|history|messages?|transcript|conversation|solution|problem[-_ ]?solving/i.test(p.name));
   return e.likelyAgent && structured.length === 1 ? structured[0].i : -1;
 }
