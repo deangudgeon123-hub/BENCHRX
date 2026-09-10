@@ -138,3 +138,21 @@ production build and 29 worker hashes pass. Python verification is environment-b
 (missing pytest; dependency installation unavailable), not a claimed pass.
 Cumulative diff inspection found no unrelated changes, new raw logging, secrets,
 Space-specific runtime dispatch, scoring changes or security-architecture changes.
+
+## Stage 8a: generic fix proven by live schema replay
+
+Frontier's public surface revealed a pre-existing array-output heuristic bug: an
+explicit File component labelled Output files could win the fallback intended only
+for schemas missing Chatbot component metadata. That fallback now requires missing
+component metadata. A uniquely labelled Current turn Markdown transcript is recognized
+as a current assistant-output candidate; extraction still requires assistant-authored
+content. Current live Frontier selects output 3, not its file output at 4.
+
+The same public graph proves two hidden State inputs. Generated single-step/structured
+recipes now map visible inputs/outputs to normalized wire slots, inserting null only
+for proven State slots. This is the same server-State placeholder rule as the existing
+First Agent workflow. Manual configs and transport internals are unchanged.
+
+A new live-shape regression failed before the fix (selected 4 instead of 3).
+Verification after the fix: 65 focused tests, all 81 Node tests, typecheck and production
+build pass. No live timeout budget was increased to accommodate the workspace proxy.

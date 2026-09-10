@@ -30,7 +30,7 @@ test('schema capabilities remain evidence candidates, not an invocation success 
   assert.equal(e.inputs[1].state, true); assert.equal(e.inputs[1].hidden, true);
 });
 
-test('graph normalization retains hidden State wire positions without changing visible counts or recipes', () => {
+test('graph normalization retains hidden State wire positions without changing visible counts', () => {
   const endpoints = parse([p('prompt')], [p('status'), p('answer')]);
   const config = {components: [{id: 1, type: 'state'}, {id: 2, type: 'textbox'}, {id: 3, type: 'markdown'}, {id: 4, type: 'markdown', props: {visible: false}}],
     dependencies: [{id: 9, api_name: 'predict', inputs: [1, 2], outputs: [3, 1, 4], trigger_after: 8}]};
@@ -40,7 +40,10 @@ test('graph normalization retains hidden State wire positions without changing v
   assert.equal(e.outputs[1].hidden, true); assert.equal(e.outputs[1].state, false);
   assert.equal(e.dependency?.inputs[0].state, true); assert.equal(e.dependency?.triggerAfter, 8);
   assert.equal(e.capabilities.workflow, 'shared_state_required');
-  assert.deepEqual(singleStepRecipes('https://demo.hf.space', [e]), singleStepRecipes('https://demo.hf.space', endpoints));
+  const [recipe] = singleStepRecipes('https://demo.hf.space', [e]);
+  assert.deepEqual(JSON.parse(recipe.config.inputs), [null, '{{message}}']);
+  assert.equal(recipe.config.outputIndex, '2');
+  assert.equal(singleStepRecipes('https://demo.hf.space', endpoints)[0].config.outputIndex, '1');
   assert.deepEqual(enrichSchemaGraph(endpoints, {...config, components: [...config.components, config.components[0]]}), endpoints);
   assert.deepEqual(enrichSchemaGraph(endpoints, {...config, components: []}), endpoints);
 });

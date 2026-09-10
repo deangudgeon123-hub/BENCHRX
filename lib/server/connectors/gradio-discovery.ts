@@ -126,7 +126,8 @@ export function assistantOutputIndex(e: GradioEndpoint): number {
   if (chat.length === 1) return chat[0].i;
   const text = e.outputs.map((p, i) => ({p, i})).filter(({p}) =>
     (p.type === 'string' || p.type === 'str') && !/user|prompt|input|message|status/i.test(p.name));
-  const named = text.filter(({p}) => /assistant|answer|response|output|transcript/i.test(p.name));
+  const named = text.filter(({p}) => /assistant|answer|response|output|transcript/i.test(p.name) ||
+    p.component === 'markdown' && /^current turn$/i.test(p.name));
   if (named.length === 1) return named[0].i;
   if (text.length === 1) return text[0].i;
 
@@ -135,15 +136,29 @@ export function assistantOutputIndex(e: GradioEndpoint): number {
   // endpoint, accept exactly one conversationally named structured output. Invocation
   // still has to pass normal assistant-text extraction before the connection succeeds.
   const structured = e.outputs.map((p, i) => ({p, i})).filter(({p}) =>
-    /^(array|list)$/.test(p.type) && /assistant|answer|response|output|history|messages?|transcript|conversation|solution|problem[-_ ]?solving/i.test(p.name));
+    !p.component && /^(array|list)$/.test(p.type) && /assistant|answer|response|output|history|messages?|transcript|conversation|solution|problem[-_ ]?solving/i.test(p.name));
   return e.likelyAgent && structured.length === 1 ? structured[0].i : -1;
+}
+
+function wireRecipe(e: GradioEndpoint, visibleInputs: unknown[], output: number) {
+  if (!e.dependency) return {inputs: visibleInputs, output};
+  const inputs = e.dependency.inputs, outputs = e.dependency.outputs;
+  if (inputs.filter(p => !p.state).length !== visibleInputs.length ||
+      outputs.filter(p => !p.state).length !== e.outputCount) return null;
+  const selected = outputs.find(p => p.visibleIndex === output);
+  if (!selected) return null;
+  // Null is a proven State wire placeholder, not invented state. Gradio substitutes
+  // server-held defaults for this fresh invocation, as in the established workflow.
+  return {inputs: inputs.map(p => p.state ? null : visibleInputs[p.visibleIndex!]), output: selected.wireIndex};
 }
 export function singleStepRecipes(spaceUrl: string, endpoints: GradioEndpoint[]): ConnectorRecipe[] {
   return endpoints.flatMap(e => {
     const message = inferMessageInput(e).index, output = assistantOutputIndex(e);
     if (message < 0 || output < 0 || e.inputs.some(p => isSensitiveParameter(p)) || e.inputs.some((p, i) => i !== message && (!p.hasDefault || p.component === 'state'))) return [];
     const inputs = e.inputs.map((p, i) => i === message ? messageInputValue(p) : p.defaultValue);
-    const config = {space: spaceUrl, apiName: e.apiName, inputs: JSON.stringify(inputs), outputIndex: String(output)};
+    const wire = wireRecipe(e, inputs, output);
+    if (!wire) return [];
+    const config = {space: spaceUrl, apiName: e.apiName, inputs: JSON.stringify(wire.inputs), outputIndex: String(wire.output)};
     parsePlan(config.inputs, config.apiName, config.outputIndex);
     return [{provider: 'gradio' as const, label: `/${e.apiName}`, kind: 'executable' as const, requiredInputs: [], config}];
   });
@@ -162,10 +177,12 @@ export function structuredInputRecipes(spaceUrl: string, endpoints: GradioEndpoi
       if (p.hasDefault) return p.defaultValue;
       return `<REQUIRED:${p.name}>`;
     });
-    const config = {space: spaceUrl, apiName: e.apiName, inputs: JSON.stringify(inputs), outputIndex: String(output)};
+    const wire = wireRecipe(e, inputs, output);
+    if (!wire) return [];
+    const config = {space: spaceUrl, apiName: e.apiName, inputs: JSON.stringify(wire.inputs), outputIndex: String(wire.output)};
     parseGradioTemplate(config.inputs, config.apiName, config.outputIndex);
     const requiredInputs = e.inputs.flatMap((p, index) => index !== message && !p.hasDefault
-      ? [{index, name: p.name, type: p.type, component: p.component, required: p.required}] : []);
+      ? [{index: p.wireIndex ?? index, name: p.name, type: p.type, component: p.component, required: p.required}] : []);
     return [{provider: 'gradio' as const, label: `/${e.apiName} (structured input template)`,
       kind: requiredInputs.length ? 'template' as const : 'executable' as const, requiredInputs, config}];
   });
