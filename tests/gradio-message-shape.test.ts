@@ -6,6 +6,12 @@ import {parsePlan, executeGradioPlan} from '../lib/server/gradio-workflow.ts';
 const message = {parameter_name: 'message', component: 'Multimodaltextbox', type: {
   type: 'object', title: 'MultimodalData', properties: {text: {type: 'string'}, files: {type: 'array', items: {$ref: '#/$defs/FileData'}}}, required: ['text'],
 }};
+const nullableMessage = {parameter_name: 'message', component: 'Multimodaltextbox', type: {
+  type: 'object', title: 'MultimodalData', properties: {
+    text: {anyOf: [{type: 'string'}, {type: 'null'}], default: null},
+    files: {type: 'array', items: {$ref: '#/$defs/FileData'}, default: []},
+  }, required: ['text'],
+}};
 const scalar = (name: string, type = 'string') => ({parameter_name: name, type: {type}, component: type === 'string' ? 'Textbox' : 'Slider'});
 const parse = (parameters: unknown[]) => parseGradioSchema({named_endpoints: {'/chat': {parameters, returns: [scalar('answer')]}}});
 
@@ -22,6 +28,17 @@ test('proven MultimodalData generates text-only objects without inventing other 
   assert.equal(JSON.stringify(liveLike).includes('private system instructions'), false);
 });
 
+test('Gradio 5 nullable MultimodalTextbox schemas remain proven text-only messages', () => {
+  assert.equal(provenMessageShape(nullableMessage), 'text_files');
+  const [recipe] = structuredInputRecipes('https://demo.hf.space', parse([
+    nullableMessage,
+    {...scalar('system_prompt'), label: 'System Prompt', parameter_has_default: true, parameter_default: ''},
+    {...scalar('max_new_tokens', 'number'), label: 'Max New Tokens', parameter_has_default: true, parameter_default: 2048},
+  ]));
+  assert.equal(recipe.kind, 'executable');
+  assert.deepEqual(JSON.parse(recipe.config.inputs), [{text: '{{message}}', files: []}, '', 2048]);
+});
+
 test('unknown objects, required uploads and extra constraints remain manual', () => {
   for (const candidate of [{...message, component: 'JSON'}, {...message, type: {type: 'object'}},
     {...message, type: {...message.type, required: ['text', 'image']}},
@@ -30,6 +47,10 @@ test('unknown objects, required uploads and extra constraints remain manual', ()
     assert.equal(provenMessageShape(candidate), null);
     assert.deepEqual(singleStepRecipes('https://demo.hf.space', parse([candidate])), []);
   }
+  assert.equal(provenMessageShape({...nullableMessage, type: {...nullableMessage.type, properties: {
+    ...nullableMessage.type.properties,
+    text: {anyOf: [{type: 'string'}, {type: 'number'}, {type: 'null'}]},
+  }}}), null);
 });
 
 test('proven object messages invoke through unchanged Gradio transport and string inputs stay strings', async () => {
