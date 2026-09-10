@@ -47,6 +47,52 @@ export function parseGradioSchema(raw: unknown): GradioEndpoint[] {
       likelyAgent: /chat|agent|respond|predict|generate|solve|plan|^_?run$/i.test(apiName)}];
   });
 }
+
+function genericParameterName(name: string): boolean {
+  return /^(?:parameter|value|output|component)_?\d+$/i.test(name);
+}
+
+// Gradio's /info endpoint can expose generated output names such as value_12 even
+// though /config still carries the UI component label (for example "Final answer").
+// When the dependency graph proves a one-to-one visible-output mapping, enrich only
+// those generated names. This keeps output selection generic and avoids guessing from
+// positional order when an endpoint returns several different UI panes.
+export function enrichOutputMetadata(endpoints: GradioEndpoint[], rawConfig: unknown): GradioEndpoint[] {
+  const config = object(rawConfig);
+  if (!Array.isArray(config.dependencies) || !Array.isArray(config.components)) return endpoints;
+  const dependencies = config.dependencies.map(object);
+  const components = new Map<number, Record<string, unknown>>();
+  for (const raw of config.components) {
+    const component = object(raw);
+    if (Number.isSafeInteger(component.id)) components.set(Number(component.id), component);
+  }
+  return endpoints.map(endpoint => {
+    const matches = dependencies.filter(dep => {
+      const apiName = label(dep.api_name).replace(/^\//, '');
+      return apiName === endpoint.apiName;
+    });
+    if (matches.length !== 1 || !Array.isArray(matches[0].outputs)) return endpoint;
+    const ids = matches[0].outputs;
+    if (ids.some(id => !Number.isSafeInteger(id))) return endpoint;
+    const visible = ids
+      .map(id => components.get(Number(id)))
+      .filter((component): component is Record<string, unknown> => !!component && label(component.type).toLowerCase() !== 'state');
+    if (visible.length !== endpoint.outputs.length) return endpoint;
+    const outputs = endpoint.outputs.map((output, index) => {
+      const component = visible[index];
+      const props = object(component.props);
+      const componentLabel = label(props.label || props.name);
+      const componentType = label(component.type).toLowerCase();
+      return {
+        ...output,
+        name: genericParameterName(output.name) && componentLabel ? componentLabel : output.name,
+        component: output.component || componentType,
+      };
+    });
+    return {...endpoint, outputs};
+  });
+}
+
 function messageIndex(e: GradioEndpoint): number {
   const strings = e.inputs.map((p, i) => ({p, i})).filter(({p}) => p.type === 'string' || p.type === 'str');
   const named = strings.filter(({p}) => /^(message|user_message|prompt|text|query|input|user_input|user_query)$/i.test(p.name));
@@ -132,13 +178,19 @@ export async function resolveGradioSpace(raw: string, io: ConnectorIO): Promise<
 export async function discoverGradio(raw: string, io: ConnectorIO = publicConnectorIO): Promise<GradioDiscovery> {
   const space = await resolveGradioSpace(raw, io);
   const schema = await readJson({...space, url: new URL('/gradio_api/info', space.url.origin)}, io);
-  const endpoints = parseGradioSchema(schema);
-  let workflows: ConnectorRecipe[] = [];
-  if (endpoints.some(e => e.apiName === 'log_user_message') && endpoints.some(e => e.apiName === 'interact_with_agent')) {
+  let endpoints = parseGradioSchema(schema);
+  let rawConfig: unknown = null;
+  const needsConfig = endpoints.some(e => e.outputCount > 1) ||
+    (endpoints.some(e => e.apiName === 'log_user_message') && endpoints.some(e => e.apiName === 'interact_with_agent'));
+  if (needsConfig) {
     try {
-      const config = await readJson({...space, url: new URL('/config', space.url.origin)}, io);
-      workflows = statefulRecipes(space.url.origin, endpoints, config, assistantOutputIndex);
-    } catch { /* Optional graph unavailable: preserve manual fallback and supported single steps. */ }
+      rawConfig = await readJson({...space, url: new URL('/config', space.url.origin)}, io);
+      endpoints = enrichOutputMetadata(endpoints, rawConfig);
+    } catch { /* Optional config enrichment unavailable: preserve schema-only discovery/manual fallback. */ }
+  }
+  let workflows: ConnectorRecipe[] = [];
+  if (rawConfig && endpoints.some(e => e.apiName === 'log_user_message') && endpoints.some(e => e.apiName === 'interact_with_agent')) {
+    workflows = statefulRecipes(space.url.origin, endpoints, rawConfig, assistantOutputIndex);
   }
   // Never suggest calling one half of a stateful chain as a standalone agent.
   const standalone = endpoints.filter(e => e.apiName !== 'log_user_message' && e.apiName !== 'interact_with_agent');
