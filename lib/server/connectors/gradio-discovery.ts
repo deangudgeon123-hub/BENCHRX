@@ -216,6 +216,7 @@ export async function discoverGradio(raw: string, io: ConnectorIO = publicConnec
   let endpoints = parseGradioSchema(schema);
   let rawConfig: unknown = null;
   const needsConfig = endpoints.some(e => e.outputCount > 1) ||
+    endpoints.some(e => e.outputCount === 1 && assistantOutputIndex(e) < 0) ||
     (endpoints.some(e => e.apiName === 'log_user_message') && endpoints.some(e => e.apiName === 'interact_with_agent'));
   if (needsConfig) {
     try {
