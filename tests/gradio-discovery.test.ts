@@ -47,7 +47,7 @@ test('single unresolved output fetches config and uses proven Chatbot metadata',
   assert.deepEqual(d.recipes[0].config, {space: 'https://demo.hf.space', apiName: 'chat', inputs: '["{{message}}"]', outputIndex: '0'});
   assert.equal(d.endpoints[0].outputs[0].component, 'chatbot');
 });
-test('agent-like endpoints recognize one conversational JSON object output before or after component enrichment', () => {
+test('agent-like endpoints recognize conversational JSON object and literal json wire outputs', () => {
   const bare = parseGradioSchema({named_endpoints: {'/chat': {
     parameters: [param('message')],
     returns: [{parameter_name: 'Response', type: {type: 'object'}, component: ''}],
@@ -56,12 +56,17 @@ test('agent-like endpoints recognize one conversational JSON object output befor
     parameters: [param('message')],
     returns: [{parameter_name: 'Response', type: {type: 'object'}, component: 'JSON'}],
   }}});
+  const literalJson = parseGradioSchema({named_endpoints: {'/chat': {
+    parameters: [param('message')],
+    returns: [{parameter_name: 'Response', type: {type: 'json'}, component: 'JSON'}],
+  }}});
   const unrelated = parseGradioSchema({named_endpoints: {'/chat': {
     parameters: [param('message')],
     returns: [{parameter_name: 'Response', type: {type: 'object'}, component: 'Dataframe'}],
   }}});
   assert.equal(assistantOutputIndex(bare[0]), 0);
   assert.equal(assistantOutputIndex(enriched[0]), 0);
+  assert.equal(assistantOutputIndex(literalJson[0]), 0);
   assert.equal(assistantOutputIndex(unrelated[0]), -1);
 });
 test('ambiguous endpoints require a choice; unknown parameters require manual configuration', async () => {
