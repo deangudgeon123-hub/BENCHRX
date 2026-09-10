@@ -52,6 +52,37 @@ test('single-step Frontier keeps event-id polling without assigning a different 
   assert.equal(r.response, 'Connected');
 });
 
+test('single-step Gradio 6 falls back from legacy 404 to v2 named-argument queue submission', async () => {
+  const calls: string[] = [];
+  const provider = createGradioConnector({pin: async () => target, request: async (t, o) => {
+    calls.push(`${o.method} ${t.url.pathname}`);
+    if (o.method === 'POST' && t.url.pathname === '/gradio_api/call/ask_council') {
+      assert.deepEqual(JSON.parse(o.body!), {data: ['fixture']});
+      return {status: 404, headers: {}, text: '{"detail":"join queue"}'};
+    }
+    if (o.method === 'GET' && t.url.pathname === '/gradio_api/info') {
+      return {status: 200, headers: {}, text: JSON.stringify({named_endpoints: {'/ask_council': {
+        parameters: [{parameter_name: 'question', type: {type: 'string'}, component: 'Textbox'}],
+        returns: [{parameter_name: 'output', type: {type: 'string'}, component: 'Textbox'}],
+      }}})};
+    }
+    if (o.method === 'POST' && t.url.pathname === '/gradio_api/call/v2/ask_council') {
+      assert.deepEqual(JSON.parse(o.body!), {question: 'fixture'});
+      return {status: 200, headers: {}, text: '{"event_id":"event-v2"}'};
+    }
+    assert.equal(t.url.pathname, '/gradio_api/call/v2/ask_council/event-v2');
+    return {status: 200, headers: {}, text: 'event: complete\ndata: ["Council connected"]\n\n'};
+  }});
+  const r = await invokeNormalizedConnector(provider, new URLSearchParams({space: target.url.href, apiName: 'ask_council', inputs: '["{{message}}"]', outputIndex: '0'}), {message: 'fixture'});
+  assert.equal(r.outcome, 'observed_response'); assert.equal(r.response, 'Council connected');
+  assert.deepEqual(calls, [
+    'POST /gradio_api/call/ask_council',
+    'GET /gradio_api/info',
+    'POST /gradio_api/call/v2/ask_council',
+    'GET /gradio_api/call/v2/ask_council/event-v2',
+  ]);
+});
+
 test('session SSE accepts only matching successful completion, never partial or another event', async () => {
   const {parseQueueSseComplete} = await import('../lib/server/gradio-output.ts');
   const packet = (msg: string, event_id = 'ours', success = true) => 'data: ' + JSON.stringify({msg, event_id, success, output: {data: ['assistant fixture']}}) + '\n\n';
