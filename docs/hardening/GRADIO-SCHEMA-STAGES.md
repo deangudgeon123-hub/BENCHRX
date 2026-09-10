@@ -58,3 +58,21 @@ MCQ maps question and leaves every option REQUIRED; Travel still maps preference
 Verification: 47 focused tests, typecheck and production build pass. No transport,
 scoring, extraction, timeout or security-network changes. Enforcing unresolved template
 rejection and typed fixed-input requirements belongs to the next checkpoint (Stage 3).
+
+## Stage 3: typed templates and execution guard
+
+Non-message parameters now use declared safe defaults or explicit REQUIRED values,
+including numeric, object, array and file inputs. Recipes carry executable/template
+kind plus required-input type metadata. Template structural validation is separate
+from executable-plan validation; execution itself also rejects unresolved nested
+values, so a template cannot bypass the guard by being parsed through the template API.
+No values or multimodal fixtures are invented. Recognizing a file input does not yet
+claim current-suite suitability (Stage 6).
+
+Default filtering now checks sensitive names/labels before primitive shortcuts,
+recognizes spaced API-key labels, bounds selector strings, and checks declared schema
+type compatibility. This closes a verified primitive/label redaction gap without
+changing credential handling or the security architecture.
+
+Verification: 51 focused tests, all 67 Node tests, typecheck and production build pass.
+Transport, scoring, readiness, benchmark content, worker and database files are untouched.

@@ -1,6 +1,10 @@
 // Serializable discovery output only; never carries service credentials or raw diagnostics.
 export type ProviderId = 'generic' | 'gradio';
-export type ConnectorRecipe = {label: string; provider: ProviderId; config: Record<string, string>};
+export type ConnectorRecipe = {
+  label: string; provider: ProviderId; config: Record<string, string>;
+  kind?: 'executable' | 'template';
+  requiredInputs?: Array<{index: number; name: string; type: string; component: string; required: boolean | null}>;
+};
 export type ConnectorDiscovery = {
   provider: ProviderId;
   status: 'manual_required' | 'proposed' | 'ambiguous';

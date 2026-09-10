@@ -53,7 +53,28 @@ function containsMessagePlaceholder(value: unknown): boolean {
   return false;
 }
 
+function containsRequiredValue(value: unknown): boolean {
+  if (typeof value === 'string') return value.includes('<REQUIRED:');
+  if (Array.isArray(value)) return value.some(containsRequiredValue);
+  if (value && typeof value === 'object') return Object.values(value).some(containsRequiredValue);
+  return false;
+}
+
 export function parsePlan(raw: string, apiNameRaw: string, outputIndexRaw: string): ParsedPlan {
+  const plan = parseGradioTemplate(raw, apiNameRaw, outputIndexRaw);
+  assertResolvedInputs(plan);
+  return plan;
+}
+
+function assertResolvedInputs(plan: ParsedPlan) {
+  if (plan.steps.some(step => containsRequiredValue(step.inputs))) {
+    throw new Error('Fill every REQUIRED Gradio input before invoking the connector.');
+  }
+}
+
+// Validates an editable template's structure only. Execution independently rejects
+// unresolved values even if a caller passes this plan directly rather than parsePlan.
+export function parseGradioTemplate(raw: string, apiNameRaw: string, outputIndexRaw: string): ParsedPlan {
   if(raw.length>16384) throw new Error("Gradio configuration too large");
   let parsed: unknown;
   try {
@@ -356,6 +377,7 @@ export async function executeGradioPlan(
   space:ValidatedHttpsTarget,plan:ParsedPlan,message:unknown,
   transport:typeof pinnedHttpsRequest=pinnedHttpsRequest
 ) {
+  assertResolvedInputs(plan);
   const sessionHash=randomUUID();
   const deadline=Date.now()+WORKFLOW_TIMEOUT_MS;
   const selectedResults:unknown[]=[];
