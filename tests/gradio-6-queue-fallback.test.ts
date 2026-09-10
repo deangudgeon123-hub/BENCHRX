@@ -10,7 +10,7 @@ const target = {
   family: 4 as const,
 };
 
-test('single-step Gradio 6.0 falls back from unavailable simple/v2 calls to queue join', async () => {
+test('single-step legacy 404 selects the public queued capability without guessing a v2 route', async () => {
   const seen: string[] = [];
   const provider = createGradioConnector({
     pin: async () => target,
@@ -21,15 +21,12 @@ test('single-step Gradio 6.0 falls back from unavailable simple/v2 calls to queu
       }
       if (o.method === 'GET' && t.url.pathname === '/gradio_api/info') {
         return {status: 200, headers: {}, text: JSON.stringify({named_endpoints: {
-          '/ask_council': {parameters: [{parameter_name: 'question'}], returns: [{parameter_name: 'output'}]},
+          '/ask_council': {api_visibility: 'public', parameters: [{parameter_name: 'question'}], returns: [{parameter_name: 'output'}]},
         }})};
       }
-      if (o.method === 'POST' && t.url.pathname === '/gradio_api/call/v2/ask_council') {
-        return {status: 404, headers: {}, text: ''};
-      }
       if (o.method === 'GET' && t.url.pathname === '/config') {
-        return {status: 200, headers: {}, text: JSON.stringify({dependencies: [
-          {id: 7, api_name: 'ask_council', inputs: [1], outputs: [2]},
+        return {status: 200, headers: {}, text: JSON.stringify({api_prefix: '/gradio_api', protocol: 'sse_v3', enable_queue: true, dependencies: [
+          {id: 7, api_name: 'ask_council', api_visibility: 'public', queue: true, inputs: [1], outputs: [2]},
         ]})};
       }
       if (o.method === 'POST' && t.url.pathname === '/gradio_api/queue/join') {
@@ -58,7 +55,6 @@ test('single-step Gradio 6.0 falls back from unavailable simple/v2 calls to queu
   assert.deepEqual(seen, [
     'POST /gradio_api/call/ask_council',
     'GET /gradio_api/info',
-    'POST /gradio_api/call/v2/ask_council',
     'GET /config',
     'POST /gradio_api/queue/join',
     'GET /gradio_api/queue/data',

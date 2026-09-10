@@ -1,4 +1,5 @@
 import {randomUUID} from "node:crypto";
+import {namedCallCapability, queueCallCapability} from './connectors/gradio-transport.ts';
 import {GradioInvocationError} from "./gradio-errors.ts";
 import {parseSseComplete, parseQueueSseComplete} from "./gradio-output.ts";
 import {pinnedHttpsRequest, PinnedRequestTimeoutError, type ValidatedHttpsTarget} from "./pinned-https.ts";
@@ -196,90 +197,40 @@ async function requestOrInvocationError(
   });
 }
 
-async function gradio6NamedSubmit(
-  space: ValidatedHttpsTarget,
-  step: WorkflowStep,
-  data: unknown[],
-  deadline: number,
+async function capabilitySubmit(
+  space: ValidatedHttpsTarget, step: WorkflowStep, data: unknown[], deadline: number,
   transport: typeof pinnedHttpsRequest,
 ) {
-  const info = await requestOrInvocationError(withPath(space, '/gradio_api/info'), {
-    method: 'GET',
-    headers: {Accept: 'application/json'},
-    timeoutMs: remainingTime(deadline),
-    maxResponseBytes: MAX_RESPONSE_BYTES,
-  }, 'submit', transport);
-  if (info.status < 200 || info.status >= 300) return null;
-
-  let schema: JsonObject;
-  try {schema = JSON.parse(info.text) as JsonObject;} catch {return null;}
-  const named = schema.named_endpoints;
-  if (!named || typeof named !== 'object' || Array.isArray(named)) return null;
-  const endpoint = (named as JsonObject)[`/${step.apiName}`];
-  if (!endpoint || typeof endpoint !== 'object' || Array.isArray(endpoint)) return null;
-  const parameters = (endpoint as JsonObject).parameters;
-  if (!Array.isArray(parameters) || parameters.length !== data.length) return null;
-
-  const namedBody: JsonObject = {};
-  for (let index = 0; index < parameters.length; index++) {
-    const raw = parameters[index];
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-    const name = String((raw as JsonObject).parameter_name ?? '');
-    if (!/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name) || Object.hasOwn(namedBody, name)) return null;
-    namedBody[name] = data[index];
+  const readCapability = async (path: string): Promise<unknown> => {
+    const response = await requestOrInvocationError(withPath(space, path), {
+      method: 'GET', headers: {Accept: 'application/json'},
+      timeoutMs: remainingTime(deadline), maxResponseBytes: MAX_RESPONSE_BYTES,
+    }, 'submit', transport);
+    if (response.status < 200 || response.status >= 300) return null;
+    try {return JSON.parse(response.text);} catch {return null;}
+  };
+  const info = await readCapability('/gradio_api/info');
+  const names = namedCallCapability(info, step.apiName, data.length);
+  let path: string, payload: unknown, fallbackSessionHash: string | undefined;
+  if (names) {
+    path = `/gradio_api/call/v2/${encodeURIComponent(step.apiName)}`;
+    payload = Object.fromEntries(names.map((name, i) => [name, data[i]]));
+  } else {
+    const config = await readCapability('/config');
+    const fnIndex = queueCallCapability(info, config, step.apiName, data.length);
+    if (fnIndex === null) return null;
+    path = '/gradio_api/queue/join';
+    fallbackSessionHash = randomUUID();
+    payload = {data, fn_index: fnIndex, session_hash: fallbackSessionHash};
   }
-
   let body: string;
-  try {body = JSON.stringify(namedBody);} catch {throw new GradioInvocationError('payload', 'serialization');}
-  const target = withPath(space, `/gradio_api/call/v2/${encodeURIComponent(step.apiName)}`);
-  const response = await requestOrInvocationError(target, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body,
-    timeoutMs: remainingTime(deadline),
-    maxResponseBytes: MAX_RESPONSE_BYTES,
+  try {body = JSON.stringify(payload);} catch {throw new GradioInvocationError('payload', 'serialization');}
+  const response = await requestOrInvocationError(withPath(space, path), {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body,
+    timeoutMs: remainingTime(deadline), maxResponseBytes: MAX_RESPONSE_BYTES,
   }, 'submit', transport);
-  return response;
-}
-
-async function queueJoinSubmit(
-  space: ValidatedHttpsTarget,
-  step: WorkflowStep,
-  data: unknown[],
-  deadline: number,
-  transport: typeof pinnedHttpsRequest,
-) {
-  const config = await requestOrInvocationError(withPath(space, '/config'), {
-    method: 'GET',
-    headers: {Accept: 'application/json'},
-    timeoutMs: remainingTime(deadline),
-    maxResponseBytes: MAX_RESPONSE_BYTES,
-  }, 'submit', transport);
-  if (config.status < 200 || config.status >= 300) return null;
-
-  let raw: JsonObject;
-  try {raw = JSON.parse(config.text) as JsonObject;} catch {return null;}
-  if (!Array.isArray(raw.dependencies) || raw.dependencies.length > 128) return null;
-  const matches = raw.dependencies.filter(item => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
-    const name = String((item as JsonObject).api_name ?? '').replace(/^\//, '');
-    return name === step.apiName;
-  });
-  if (matches.length !== 1) return null;
-  const fnIndex = Number((matches[0] as JsonObject).id);
-  if (!Number.isSafeInteger(fnIndex) || fnIndex < 0) return null;
-
-  const fallbackSessionHash = randomUUID();
-  let body: string;
-  try {body = JSON.stringify({data, fn_index: fnIndex, session_hash: fallbackSessionHash});}
-  catch {throw new GradioInvocationError('payload', 'serialization');}
-  const response = await requestOrInvocationError(withPath(space, '/gradio_api/queue/join'), {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body,
-    timeoutMs: remainingTime(deadline),
-    maxResponseBytes: MAX_RESPONSE_BYTES,
-  }, 'submit', transport);
+  // Exactly one evidence-selected alternative. Its failure is not permission to
+  // submit the same request again through another transport.
   return {response, fallbackSessionHash};
 }
 
@@ -304,23 +255,13 @@ async function callPinnedSingleStep(
   }, 'submit', transport);
   let fallbackSessionHash: string | undefined;
 
-  // Keep the established simple-call path first. Gradio 6.0 can expose an endpoint in
-  // /info while refusing direct /call requests; its stable queue/join transport remains
-  // usable when the public /config dependency graph identifies exactly one fn_index.
-  // Newer Gradio releases also expose /call/v2; try that before queue/join, but do not
-  // assume v2 exists (it was not present in Gradio 6.0.0).
+  // Only a single-step legacy 404 permits public capability inspection. Neither
+  // arbitrary HTTP failures nor a failed alternative trigger another submission.
   if (submitResponse.status === 404 && !sessionHash) {
-    const named = await gradio6NamedSubmit(space, step, data, deadline, transport);
-    if (named && named.status >= 200 && named.status < 300) {
-      submitResponse = named;
-    } else {
-      const queued = await queueJoinSubmit(space, step, data, deadline, transport);
-      if (queued) {
-        submitResponse = queued.response;
-        fallbackSessionHash = queued.fallbackSessionHash;
-      } else if (named) {
-        submitResponse = named;
-      }
+    const alternative = await capabilitySubmit(space, step, data, deadline, transport);
+    if (alternative) {
+      submitResponse = alternative.response;
+      fallbackSessionHash = alternative.fallbackSessionHash;
     }
   }
 

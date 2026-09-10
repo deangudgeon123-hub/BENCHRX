@@ -64,6 +64,7 @@ test('single-step Gradio 6 falls back from legacy 404 to v2 named-argument queue
       return {status: 200, headers: {}, text: JSON.stringify({named_endpoints: {'/ask_council': {
         parameters: [{parameter_name: 'question', type: {type: 'string'}, component: 'Textbox'}],
         returns: [{parameter_name: 'output', type: {type: 'string'}, component: 'Textbox'}],
+        code_snippets: {bash: 'curl -X POST http://0.0.0.0:7860/gradio_api/call/v2/ask_council'},
       }}})};
     }
     if (o.method === 'POST' && t.url.pathname === '/gradio_api/call/v2/ask_council') {

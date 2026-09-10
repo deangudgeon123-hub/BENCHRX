@@ -76,3 +76,25 @@ changing credential handling or the security architecture.
 
 Verification: 51 focused tests, all 67 Node tests, typecheck and production build pass.
 Transport, scoring, readiness, benchmark content, worker and database files are untouched.
+
+## Stage 4: public transport capabilities
+
+Council live check (2026-09-10): `/info` advertises public ask_council; `/config`
+declares a public queued function id 3, sse_v3 and /gradio_api prefix. `/openapi.json`
+returns HTML, not routing evidence. The current legacy submit returned 200 with a valid
+event ID; polling completed and existing extraction found assistant text. The reported
+historical 404 is not reproducible, so its cause is not asserted. Probes used the fixed
+public Space via the environment proxy; production pinned DNS is unavailable in this
+workspace. This is not a deployed Vercel connection-test claim.
+
+Removed speculative fallback ordering. After a single-step legacy 404, named v2 is
+eligible only when the endpoint's public API snippet explicitly advertises it and
+parameter names/arity validate. Otherwise a public queued capability requires matching
+info/config visibility, prefix, protocol, queue flag, input arity and function ID.
+At most one alternative is submitted. Its 404/500/etc. cannot trigger another job.
+Neither versions nor remote URLs control routing; all requests retain the pinned host.
+Unsafe/duplicate named keys are rejected. Existing successful legacy/session paths remain.
+
+Verification: 55 focused tests, typecheck and production build pass. Regression cases
+include no retry on auth/429/500/redirect errors, unsupported 404, failed alternative,
+private/ambiguous queue metadata, named v2, and existing First Agent/Frontier paths.
