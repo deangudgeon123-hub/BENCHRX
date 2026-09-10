@@ -17,6 +17,36 @@ test('single-step discovery proposes the existing manual recipe format without i
   assert.equal(d.status, 'proposed'); assert.deepEqual(d.recipes[0].config, {space: 'https://demo.hf.space', apiName: 'chat', inputs: '["{{message}}"]', outputIndex: '0'});
   assert.equal(d.endpoints[0].inputCount, 1); assert.equal(d.endpoints[0].outputs[0].type, 'string');
 });
+test('single unresolved output fetches config and uses proven Chatbot metadata', async () => {
+  const unresolved = {named_endpoints: {'/chat': {
+    parameters: [param('message')],
+    returns: [{parameter_name: 'Response', type: {type: 'object'}, component: ''}],
+  }}};
+  const config = {
+    dependencies: [{api_name: 'chat', inputs: [1], outputs: [2]}],
+    components: [
+      {id: 1, type: 'textbox', props: {label: 'Message'}},
+      {id: 2, type: 'chatbot', props: {label: 'Response'}},
+    ],
+  };
+  const seen: string[] = [];
+  const io: ConnectorIO = {
+    pin: async raw => ({url: new URL(raw), hostname: new URL(raw).hostname, address: '93.184.216.34', family: 4}),
+    request: async (t, o) => {
+      assert.equal(o.method, 'GET'); assert.equal(o.headers?.Authorization, undefined);
+      seen.push(t.url.pathname);
+      if (t.url.pathname === '/gradio_api/info') return {status: 200, headers: {}, text: JSON.stringify(unresolved)};
+      if (t.url.pathname === '/config') return {status: 200, headers: {}, text: JSON.stringify(config)};
+      throw new Error(`unexpected path ${t.url.pathname}`);
+    },
+  };
+  const d = await discoverGradio('https://demo.hf.space', io);
+  assert.deepEqual(seen, ['/gradio_api/info', '/config']);
+  assert.equal(d.status, 'proposed');
+  assert.equal(d.recipes.length, 1);
+  assert.deepEqual(d.recipes[0].config, {space: 'https://demo.hf.space', apiName: 'chat', inputs: '["{{message}}"]', outputIndex: '0'});
+  assert.equal(d.endpoints[0].outputs[0].component, 'chatbot');
+});
 test('ambiguous endpoints require a choice; unknown parameters require manual configuration', async () => {
   const d = await discoverGradio('https://demo.hf.space', ioFor({named_endpoints: {'/chat': endpoint, '/agent': endpoint}}));
   assert.equal(d.status, 'ambiguous'); assert.equal(d.recipes.length, 2);
