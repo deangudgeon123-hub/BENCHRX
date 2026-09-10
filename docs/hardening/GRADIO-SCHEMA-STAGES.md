@@ -45,3 +45,16 @@ without changing recipe selection, requests, deadlines or output extraction.
 Verification: 42 focused tests pass; typecheck and production build pass. Added tests
 cover safe-default metadata, State visibility/arity, duplicate/incomplete graph handling,
 multi-output capability candidates, malformed schemas and unchanged recipe generation.
+
+## Stage 2: evidence-based text input inference
+
+Single and structured discovery now share one inference function with the established
+stateful chain. Eligible inputs must be free-text controls with string schema types;
+credential/configuration fields cannot win by name, label or sole-string fallback.
+Semantic roles are evaluated together: competing prompt/context/task fields stay
+ambiguous. A sole unnamed text input is accepted only on an agent-shaped endpoint.
+MCQ maps question and leaves every option REQUIRED; Travel still maps preferences.
+
+Verification: 47 focused tests, typecheck and production build pass. No transport,
+scoring, extraction, timeout or security-network changes. Enforcing unresolved template
+rejection and typed fixed-input requirements belongs to the next checkpoint (Stage 3).

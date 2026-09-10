@@ -4,6 +4,7 @@ import type {ValidatedHttpsTarget} from '../pinned-https.ts';
 import {statefulRecipes} from './gradio-chaining.ts';
 import {parsePlan} from '../gradio-workflow.ts';
 import {schemaCapabilities, enrichSchemaGraph} from './gradio-schema.ts';
+import {inferMessageInput, isSensitiveParameter} from './gradio-input.ts';
 
 const URL_OPTIONS = {invalidUrlMessage: 'Enter a public Gradio or Hugging Face Space URL.', httpsRequiredMessage: 'Discovery requires a public HTTPS Space.'};
 const object = (v: unknown): Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {};
@@ -100,18 +101,6 @@ export function enrichOutputMetadata(endpoints: GradioEndpoint[], rawConfig: unk
   });
 }
 
-function messageIndex(e: GradioEndpoint): number {
-  const strings = e.inputs.map((p, i) => ({p, i})).filter(({p}) => p.type === 'string' || p.type === 'str');
-  const named = strings.filter(({p}) => /^(message|user_message|prompt|text|query|input|user_input|user_query)$/i.test(p.name));
-  return named.length === 1 ? named[0].i : named.length === 0 && strings.length === 1 && e.likelyAgent ? strings[0].i : -1;
-}
-function structuredMessageIndex(e: GradioEndpoint): number {
-  if (e.inputs.length < 2) return -1;
-  const candidates = e.inputs.map((p, i) => ({p, i})).filter(({p}) =>
-    (p.type === 'string' || p.type === 'str') &&
-    /^(preferences?|instructions?|task|request|requirements?|details?|context|description)$/i.test(p.name));
-  return candidates.length === 1 ? candidates[0].i : -1;
-}
 export function assistantOutputIndex(e: GradioEndpoint): number {
   const chat = e.outputs.map((p, i) => ({p, i})).filter(({p}) => p.component === 'chatbot');
   if (chat.length === 1) return chat[0].i;
@@ -131,7 +120,7 @@ export function assistantOutputIndex(e: GradioEndpoint): number {
 }
 export function singleStepRecipes(spaceUrl: string, endpoints: GradioEndpoint[]): ConnectorRecipe[] {
   return endpoints.flatMap(e => {
-    const message = messageIndex(e), output = assistantOutputIndex(e);
+    const message = inferMessageInput(e).index, output = assistantOutputIndex(e);
     if (message < 0 || output < 0 || e.inputs.some((p, i) => i !== message && (!p.hasDefault || p.component === 'state'))) return [];
     const inputs = e.inputs.map((p, i) => i === message ? '{{message}}' : p.defaultValue);
     const config = {space: spaceUrl, apiName: e.apiName, inputs: JSON.stringify(inputs), outputIndex: String(output)};
@@ -146,8 +135,8 @@ export function singleStepRecipes(spaceUrl: string, endpoints: GradioEndpoint[])
 // only when exactly one semantically suitable free-text field is present.
 export function structuredInputRecipes(spaceUrl: string, endpoints: GradioEndpoint[]): ConnectorRecipe[] {
   return endpoints.flatMap(e => {
-    const message = structuredMessageIndex(e), output = assistantOutputIndex(e);
-    if (message < 0 || output < 0 || e.inputs.some(p => p.component === 'state')) return [];
+    const message = inferMessageInput(e).index, output = assistantOutputIndex(e);
+    if (message < 0 || output < 0 || e.inputs.some(p => p.component === 'state' || isSensitiveParameter(p))) return [];
     if (e.inputs.some((p, i) => i !== message && !p.hasDefault && !(p.type === 'string' || p.type === 'str'))) return [];
     const inputs = e.inputs.map((p, i) => {
       if (i === message) return '{{message}}';
