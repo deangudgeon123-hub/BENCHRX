@@ -73,11 +73,8 @@ export async function POST(request: Request) {
       });
     } catch (error) {
       console.error("BENCHRX connection adapter fetch failed", {
-        connectionType,
-        adapterOrigin: adapter.origin,
-        adapterPath: adapter.pathname,
-        errorName: error instanceof Error ? error.name : "UnknownError",
-        errorMessage: error instanceof Error ? error.message : String(error),
+        stage: "adapter_request",
+        code: "fetch_failed",
       });
       throw error;
     }
@@ -85,15 +82,10 @@ export async function POST(request: Request) {
     const payload = await response.json().catch(() => null);
     if (!response.ok) {
       console.error("BENCHRX connection adapter returned error", {
-        connectionType,
-        adapterOrigin: adapter.origin,
-        adapterPath: adapter.pathname,
+        stage: "adapter_response",
+        code: "http_error",
         status: response.status,
         payloadType: payload === null ? "null" : Array.isArray(payload) ? "array" : typeof payload,
-        payloadError:
-          payload && typeof payload === "object" && !Array.isArray(payload) && "error" in payload
-            ? String((payload as { error?: unknown }).error ?? "")
-            : undefined,
       });
       return NextResponse.json({ error: "Connection test failed." }, { status: response.status });
     }
@@ -102,10 +94,12 @@ export async function POST(request: Request) {
       ok: true,
       response: "Connection succeeded; response content is retained privately.",
     });
-  } catch (error) {
+  } catch {
+    // Parser/transport exceptions can contain request excerpts or secrets.
+    // Log only fixed diagnostics, never exception or upstream payload strings.
     console.error("BENCHRX connection test failed", {
-      errorName: error instanceof Error ? error.name : "UnknownError",
-      errorMessage: error instanceof Error ? error.message : String(error),
+      stage: "connection_test",
+      code: "request_failed",
     });
     return NextResponse.json({ error: "Connection test failed." }, { status: 500 });
   }
