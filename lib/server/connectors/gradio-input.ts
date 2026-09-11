@@ -25,8 +25,11 @@ export function isSensitiveParameter(p: Pick<GradioParameter, 'name' | 'label'> 
 }
 
 export function isTextMessageParameter(p: GradioParameter): boolean {
+  const semanticApiInput = p.component === 'api' &&
+    (MESSAGE_ROLES.has(normalize(p.name)) || MESSAGE_ROLES.has(normalize(p.label)));
   return !p.state && p.hidden !== true &&
-    (p.messageShape === 'text_files' || /^(string|str)$/.test(p.type) && /^(textbox|text|textarea)?$/.test(p.component)) &&
+    (p.messageShape === 'text_files' || /^(string|str)$/.test(p.type) &&
+      (/^(textbox|text|textarea)?$/.test(p.component) || semanticApiInput)) &&
     !CONFIG_FIELD.test(p.name) && !CONFIG_FIELD.test(p.label);
 }
 

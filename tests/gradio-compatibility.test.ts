@@ -33,3 +33,48 @@ test('text interface candidates and structured templates distinguish mapping fro
   const ambiguous = await discover([p('prompt'), p('context')]);
   assert.equal(ambiguous.endpoints[0].capabilities.reason, 'message_mapping_unproven');
 });
+
+test('final compatibility matrix keeps supported, structured, media, and task-specific endpoints separated', async () => {
+  const simple = await discover([p('message')], [p('answer')], 'chat');
+  assert.equal(simple.status, 'proposed');
+  assert.equal(simple.recipes[0].kind, 'executable');
+  assert.equal(simple.endpoints[0].capabilities.reason, 'text_interface_candidate');
+
+  const bella = await discover(
+    [p('message', 'string', 'api'), p('history', 'array', 'api')],
+    [p('1st', 'string', 'api'), p('2nd', 'array', 'api')],
+    'chat',
+  );
+  assert.equal(bella.status, 'proposed');
+  assert.equal(bella.recipes[0].kind, 'template');
+  assert.deepEqual(JSON.parse(bella.recipes[0].config.inputs), ['{{message}}', '<REQUIRED:history>']);
+  assert.equal(bella.endpoints[0].capabilities.reason, 'operator_values_required');
+
+  const mcq = await discover(
+    ['question', 'option_a', 'option_b', 'option_c', 'option_d', 'option_e'].map(name => p(name)),
+    [p('answer')],
+    'solve_mcq',
+  );
+  assert.equal(mcq.status, 'proposed');
+  assert.equal(mcq.recipes[0].kind, 'template');
+  assert.equal(mcq.endpoints[0].capabilities.reason, 'operator_values_required');
+
+  const media = await discover(
+    [p('image', 'object', 'Image'), p('prompt')],
+    [p('response')],
+    'generate',
+  );
+  assert.equal(media.status, 'manual_required');
+  assert.equal(media.endpoints[0].capabilities.reason, 'requires_media_fixture');
+  assert.deepEqual(media.recipes, []);
+
+  const targetLanguage = {...p('target_language', 'string', 'Dropdown'), parameter_has_default: true, parameter_default: 'JavaScript'};
+  const codeTool = await discover(
+    [p('python_code', 'string', 'Code'), targetLanguage],
+    [p('Python Code', 'string', 'Code'), p('Translated Code', 'string', 'Code'), p('Python Execution Result'), p('Translated Code Execution Result')],
+    'process_code',
+  );
+  assert.equal(codeTool.status, 'manual_required');
+  assert.equal(codeTool.endpoints[0].capabilities.reason, 'message_mapping_unproven');
+  assert.deepEqual(codeTool.recipes, []);
+});

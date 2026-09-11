@@ -16,6 +16,26 @@ test('message inference combines text type/control with semantic names and label
   assert.equal(inferMessageInput(endpoint([p('message', 'State')])).index, -1);
 });
 
+test('semantic Gradio api inputs can carry benchmark messages without broad api fallback', () => {
+  assert.equal(inferMessageInput(endpoint([p('message', 'api')], 'chat')).index, 0);
+  assert.equal(inferMessageInput(endpoint([p('user_query', 'api')], 'chat')).index, 0);
+  assert.equal(inferMessageInput(endpoint([p('payload', 'api')], 'chat')).index, -1);
+  assert.equal(inferMessageInput(endpoint([{...p('message', 'api'), label: 'API key'}], 'chat')).index, -1);
+});
+
+test('Bella-style chat maps message but preserves required history as operator input', () => {
+  const bella = parseGradioSchema({named_endpoints: {'/chat': {
+    parameters: [p('message', 'api'), p('history', 'api', 'array')],
+    returns: [p('1st', 'api'), p('2nd', 'api', 'array')],
+  }}})[0];
+  assert.equal(inferMessageInput(bella).index, 0);
+  assert.deepEqual(singleStepRecipes('https://demo.hf.space', [bella]), []);
+  const [recipe] = structuredInputRecipes('https://demo.hf.space', [bella]);
+  assert.equal(recipe.kind, 'template');
+  assert.deepEqual(JSON.parse(recipe.config.inputs), ['{{message}}', '<REQUIRED:history>']);
+  assert.equal(recipe.config.outputIndex, '0');
+});
+
 test('MCQ question maps once; required options are never invented', () => {
   const e = endpoint(['question', 'option_a', 'option_b', 'option_c', 'option_d', 'option_e'].map(name => p(name)), 'solve_mcq');
   assert.equal(inferMessageInput(e).index, 0);
