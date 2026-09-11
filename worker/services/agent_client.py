@@ -11,6 +11,22 @@ import httpx
 from config import VERCEL_AUTOMATION_BYPASS_SECRET
 from services.public_network import validate_endpoint
 
+GRADIO_READ_TIMEOUT_SECONDS = 135
+GRADIO_REQUEST_TIMEOUT_SECONDS = 140
+
+
+def is_trusted_gradio_adapter(endpoint_url: str) -> bool:
+    """Use the same origin/path boundary as adapter auth, restricted to Gradio."""
+    try:
+        validate_endpoint(endpoint_url)
+    except ValueError:
+        return False
+    parsed = urlparse(endpoint_url)
+    trusted = {x.strip().rstrip('/') for x in os.getenv('BENCHRX_ADAPTER_ORIGINS', '').split(',') if x.strip()}
+    return (f'{parsed.scheme}://{parsed.netloc}' in trusted
+            and parsed.path.rstrip('/') == '/api/adapters/gradio'
+            and len(os.getenv('BENCHRX_ADAPTER_SECRET', '')) >= 32)
+
 
 def extract_response(payload: Any) -> str:
     if isinstance(payload, dict):
@@ -51,6 +67,7 @@ async def send_request(
     started = time.perf_counter()
     try:
         validate_endpoint(endpoint_url)
+        gradio_request = is_trusted_gradio_adapter(endpoint_url)
         parsed = urlparse(endpoint_url)
         trusted = {x.strip().rstrip('/') for x in os.getenv('BENCHRX_ADAPTER_ORIGINS','').split(',') if x.strip()}
         headers = _preview_bypass_headers(endpoint_url)
@@ -60,8 +77,14 @@ async def send_request(
             headers['Authorization'] = f'Bearer {secret}'
             payload={**payload,'_benchrx_config':dict(parse_qsl(parsed.query,keep_blank_values=True))}
             endpoint_url=urlunparse(parsed._replace(query=''))
-        async with asyncio.timeout(65):
-            async with client.stream('POST',endpoint_url,json=payload,headers=headers,follow_redirects=False) as streamed:
+        # The trusted adapter buffers a 125-second workflow before replying. Give
+        # it the connection-test read envelope plus a bounded outer margin. Keep
+        # native/generic clients and connect/write/pool limits unchanged.
+        timeout_options = {'timeout': httpx.Timeout(connect=client.timeout.connect,
+            read=GRADIO_READ_TIMEOUT_SECONDS, write=client.timeout.write,
+            pool=client.timeout.pool)} if gradio_request else {}
+        async with asyncio.timeout(GRADIO_REQUEST_TIMEOUT_SECONDS if gradio_request else 65):
+            async with client.stream('POST',endpoint_url,json=payload,headers=headers,follow_redirects=False,**timeout_options) as streamed:
                 chunks=[]
                 size=0
                 async for chunk in streamed.aiter_bytes():

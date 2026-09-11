@@ -11,6 +11,7 @@ from benchmarks.tests import BENCHMARK_SUITE_VERSION, TESTS
 from config import AI_JUDGE_TEST_KEYS
 from judges.openai_judge import judge_with_openai
 from services.public_network import public_client
+from services.agent_client import is_trusted_gradio_adapter, GRADIO_REQUEST_TIMEOUT_SECONDS
 from services.supabase import get_supabase
 from services.redaction import redact,known_secrets
 
@@ -21,6 +22,16 @@ def uses_benchrx_adapter(endpoint_url: str) -> bool:
 
 def _outcome_observed(test: dict[str, Any], outcome: dict[str, Any]) -> bool:
     return any(a.get('response_observed') is True for a in outcome.get('execution',{}).get('attempts',[]))
+
+
+def run_timeout_seconds(endpoint_url: str) -> int:
+    if not is_trusted_gradio_adapter(endpoint_url):
+        return 2400
+    # Match evaluator request multiplicity, including repeats/paraphrase pairs.
+    # Allow the full bounded request budget plus two minutes for persistence.
+    attempts = sum(len(t['messages']) if t['kind'] == 'paired_exact'
+                   else 2 if t['kind'] == 'repeatability' else 1 for t in TESTS)
+    return max(2400, attempts * GRADIO_REQUEST_TIMEOUT_SECONDS + 120)
 
 
 async def rpc(supabase, name, **params):
@@ -45,7 +56,7 @@ async def execute_run(run_id: str) -> dict[str, Any]:
                 return
     renew=asyncio.create_task(heartbeat())
     try:
-        async with asyncio.timeout(2400):
+        async with asyncio.timeout(run_timeout_seconds(claim['connection']['endpoint_url'])):
             stored=await asyncio.to_thread(lambda: supabase.table('benchmark_results').select('*').eq('benchmark_run_id',run_id).execute())
             saved={r['test_key']:r for r in stored.data}
             if len(saved)!=len(stored.data) or None in saved: raise RuntimeError('Legacy/duplicate partial evidence cannot be resumed')
