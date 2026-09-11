@@ -1,11 +1,27 @@
 import {GradioInvocationError} from './gradio-errors.ts';
+
+type SafeJobFailureCode = 'rate_limited' | 'gpu_unavailable' | 'invalid_input' | 'upstream_runtime_error';
+
+// Inspect upstream failure material only to select a fixed BENCHRX code. Raw error
+// strings, stack traces, URLs, prompts, credentials, and provider payloads never cross
+// the diagnostic boundary or enter the thrown error message.
+export function classifyGradioJobFailure(value: unknown): SafeJobFailureCode {
+  let raw = '';
+  try { raw = typeof value === 'string' ? value : JSON.stringify(value); } catch { return 'upstream_runtime_error'; }
+  const text = raw.slice(0, 16_384).toLowerCase();
+  if (/rate.?limit|too many requests|quota (?:exceeded|reached)|exceeded (?:your )?quota|http.?429|status.?429/.test(text)) return 'rate_limited';
+  if (/zero.?gpu|gpu (?:is )?(?:unavailable|busy|capacity|quota)|no (?:available )?gpu|gpu capacity|gpu quota/.test(text)) return 'gpu_unavailable';
+  if (/invalid (?:input|argument|parameter)|input validation|validation (?:error|failed)|expected .*?(?:string|array|object|number)|must be (?:a |an )?(?:string|array|object|number)/.test(text)) return 'invalid_input';
+  return 'upstream_runtime_error';
+}
+
 // Protocol extraction is independent of prompts, expected answers and endpoint URLs.
 export function parseSseComplete(text: string): unknown {
   for (const block of text.split(/\r?\n\r?\n/).slice(0,-1)) {
     const lines = block.split(/\r?\n/);
     const event = lines.find((line) => line.startsWith('event:'))?.slice(6).trim();
     const data = lines.filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trimStart()).join('\n');
-    if (event === 'error') throw new GradioInvocationError('job', 'job_failed');
+    if (event === 'error') throw new GradioInvocationError('job', classifyGradioJobFailure(data));
     if (event === 'complete') {
       try { return JSON.parse(data); }
       catch { throw new GradioInvocationError('completion', 'invalid_json'); }
@@ -85,7 +101,7 @@ export function parseQueueSseComplete(text: string, eventId: string): unknown {
     if (!message || typeof message !== 'object') continue;
     if (message.msg === 'unexpected_error') throw new GradioInvocationError('poll', 'transport');
     if (message.event_id !== eventId) continue;
-    if (message.success === false) throw new GradioInvocationError('job', 'job_failed');
+    if (message.success === false) throw new GradioInvocationError('job', classifyGradioJobFailure(message));
     if (message.msg === 'process_completed' && message.success === true) {
       if (!Array.isArray(message.output?.data)) throw new GradioInvocationError('output', 'invalid_output');
       return message.output.data;
