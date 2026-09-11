@@ -11,6 +11,8 @@ import {classifyGradioEndpoint} from './gradio-compatibility.ts';
 const URL_OPTIONS = {invalidUrlMessage: 'Enter a public Gradio or Hugging Face Space URL.', httpsRequiredMessage: 'Discovery requires a public HTTPS Space.'};
 const object = (v: unknown): Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {};
 const label = (v: unknown): string => typeof v === 'string' ? v.slice(0, 100) : '';
+const normalizeSelectorName = (name: string): string => name.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const SAFE_TEXT_SELECTOR_NAMES = new Set(['model', 'engine', 'backend', 'provider', 'llm model engine']);
 
 // Expose only harmless defaults. Free-form text defaults can contain credentials or
 // private prompt material, so keep them redacted. Declared selection controls are
@@ -25,9 +27,9 @@ function safeDefault(v: unknown, component: string, parameter: Pick<GradioParame
   if (/^(checkboxgroup|checkbox-group)$/i.test(component)) {
     return Array.isArray(v) && v.length <= 32 && v.every(item => typeof item === 'string' && item.length <= 100);
   }
-  // Model/backend selectors are often rendered as textboxes in public Gradio apps.
-  // Accept only narrowly named, declared defaults; arbitrary textbox defaults remain hidden.
-  if (/^(textbox|text)$/i.test(component) && /model|engine|backend|provider/i.test(name)) {
+  // Some proven model/backend selectors are rendered as textboxes in public Gradio apps.
+  // Use an explicit normalized allowlist; prompt-bearing names must never qualify by substring.
+  if (/^(textbox|text)$/i.test(component) && SAFE_TEXT_SELECTOR_NAMES.has(normalizeSelectorName(name))) {
     return typeof v === 'string' && v.length <= 200;
   }
   return false;
