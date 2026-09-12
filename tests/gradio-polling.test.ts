@@ -5,8 +5,6 @@ import {PinnedRequestTimeoutError} from '../lib/server/pinned-https.ts';
 import {GradioInvocationError} from '../lib/server/gradio-errors.ts';
 const target = {url: new URL('https://example.com'), hostname: 'example.com', address: '93.184.216.34', family: 4 as const};
 
-// Travel Agent /gradio_api/info: four Textboxes -> one Markdown output.
-// Live Gradio 6.20.0 emits heartbeat events while plan_trip is still running.
 test('structured Gradio polling can complete after 18 seconds within the bounded workflow budget', async t => {
   let now = 1000;
   t.mock.method(Date, 'now', () => now);
@@ -20,10 +18,25 @@ test('structured Gradio polling can complete after 18 seconds within the bounded
     }
     assert.equal(url.url.pathname, '/gradio_api/call/plan_trip/travel-event');
     assert.equal(options.timeoutMs, 124000, 'poll must use the remaining total budget');
+    assert.equal(options.completeWhen?.('event: heartbeat\ndata: null\n\n'), false);
+    assert.equal(options.completeWhen?.('event: complete\ndata: ["Trip fixture"]\n\n'), true);
     now += 112000;
     return {status: 200, headers: {}, text: 'event: heartbeat\ndata: null\n\nevent: complete\ndata: ["Trip fixture"]\n\n'};
   });
   assert.deepEqual(result, ['Trip fixture']);
+});
+
+test('queue polling completion is event-specific', async () => {
+  const plan = parsePlan(JSON.stringify({steps: [{apiName: 'prepare', inputs: ['{{message}}']}]}), '', '0');
+  const result = await executeGradioPlan(target, plan, 'fixture', async (_url, options) => {
+    if (options.method === 'POST') return {status: 200, headers: {}, text: '{"event_id":"ours"}'};
+    const other = 'data: {"msg":"process_completed","event_id":"other","success":true,"output":{"data":["wrong"]}}\n\n';
+    const ours = 'data: {"msg":"process_completed","event_id":"ours","success":true,"output":{"data":["right"]}}\n\n';
+    assert.equal(options.completeWhen?.(other), false);
+    assert.equal(options.completeWhen?.(other + ours), true);
+    return {status: 200, headers: {}, text: other + ours};
+  });
+  assert.deepEqual(result, ['right']);
 });
 
 test('shared-session steps consume one deadline; heartbeats and partial output are not completion', async t => {

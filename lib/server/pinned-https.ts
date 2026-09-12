@@ -16,6 +16,7 @@ type PinnedRequestOptions = {
   body?: string;
   timeoutMs: number;
   maxResponseBytes: number;
+  completeWhen?: (text: string) => boolean;
 };
 
 export type PinnedResponse = {
@@ -163,9 +164,21 @@ export async function pinnedHttpsRequest(
         const chunks: Buffer[] = [];
         let totalBytes = 0;
 
+        const finishResolve = () => {
+          if (settled) return;
+          settled = true;
+          if (deadline) clearTimeout(deadline);
+          resolve({
+            status: response.statusCode ?? 0,
+            headers: response.headers,
+            text: Buffer.concat(chunks, totalBytes).toString("utf8"),
+          });
+        };
+
         response.on("aborted", () => finishReject(new Error("Upstream response aborted.")));
         response.on("error", finishReject);
         response.on("data", (chunk: Buffer | string) => {
+          if (settled) return;
           const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
           totalBytes += buffer.byteLength;
           if (totalBytes > options.maxResponseBytes) {
@@ -173,18 +186,24 @@ export async function pinnedHttpsRequest(
             return;
           }
           chunks.push(buffer);
+
+          if (options.completeWhen) {
+            let complete = false;
+            try {
+              complete = options.completeWhen(Buffer.concat(chunks, totalBytes).toString("utf8"));
+            } catch {
+              finishReject(new Error("Upstream response completion check failed."));
+              response.destroy();
+              return;
+            }
+            if (complete) {
+              finishResolve();
+              response.destroy();
+            }
+          }
         });
 
-        response.on("end", () => {
-          if (settled) return;
-          settled = true;
-          if (deadline) clearTimeout(deadline);
-          resolve({
-            status: response.statusCode ?? 0,
-            headers: response.headers,
-            text: Buffer.concat(chunks).toString("utf8"),
-          });
-        });
+        response.on("end", finishResolve);
       }
     );
 

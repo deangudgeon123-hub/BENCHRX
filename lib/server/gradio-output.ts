@@ -15,9 +15,39 @@ export function classifyGradioJobFailure(value: unknown): SafeJobFailureCode {
   return 'upstream_runtime_error';
 }
 
+function completeSseBlocks(text: string): string[] {
+  return text.split(/\r?\n\r?\n/).slice(0, -1);
+}
+
+// Streaming HTTP may outlive the terminal Gradio event. These helpers only identify
+// fully framed protocol-terminal events; the normal parsers below still validate and
+// classify the retained payload before any evidence is accepted.
+export function hasNamedCallTerminalEvent(text: string): boolean {
+  for (const block of completeSseBlocks(text)) {
+    const event = block.split(/\r?\n/).find((line) => line.startsWith('event:'))?.slice(6).trim();
+    if (event === 'complete' || event === 'error') return true;
+  }
+  return false;
+}
+
+export function hasQueueTerminalEvent(text: string, eventId: string): boolean {
+  for (const block of completeSseBlocks(text)) {
+    const data = block.split(/\r?\n/).filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
+    if (!data) continue;
+    let message;
+    try {message = JSON.parse(data);} catch {return true;}
+    if (!message || typeof message !== 'object') continue;
+    if (message.msg === 'unexpected_error') return true;
+    if (message.event_id !== eventId) continue;
+    if (message.success === false) return true;
+    if (message.msg === 'process_completed' && message.success === true) return true;
+  }
+  return false;
+}
+
 // Protocol extraction is independent of prompts, expected answers and endpoint URLs.
 export function parseSseComplete(text: string): unknown {
-  for (const block of text.split(/\r?\n\r?\n/).slice(0,-1)) {
+  for (const block of completeSseBlocks(text)) {
     const lines = block.split(/\r?\n/);
     const event = lines.find((line) => line.startsWith('event:'))?.slice(6).trim();
     const data = lines.filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trimStart()).join('\n');
@@ -93,7 +123,7 @@ export function extractAssistantText(value: unknown): string {
 
 // /queue/data multiplexes session messages. Only this submitted event can complete the step.
 export function parseQueueSseComplete(text: string, eventId: string): unknown {
-  for (const block of text.split(/\r?\n\r?\n/).slice(0, -1)) {
+  for (const block of completeSseBlocks(text)) {
     const data = block.split(/\r?\n/).filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
     if (!data) continue;
     let message;

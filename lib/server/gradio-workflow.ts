@@ -1,7 +1,7 @@
 import {randomUUID} from "node:crypto";
 import {namedCallCapability, queueCallCapability} from './connectors/gradio-transport.ts';
 import {GradioInvocationError} from "./gradio-errors.ts";
-import {parseSseComplete, parseQueueSseComplete} from "./gradio-output.ts";
+import {hasNamedCallTerminalEvent, hasQueueTerminalEvent, parseSseComplete, parseQueueSseComplete} from "./gradio-output.ts";
 import {pinnedHttpsRequest, PinnedRequestTimeoutError, type ValidatedHttpsTarget} from "./pinned-https.ts";
 const REQUEST_TIMEOUT_MS = 18_000;
 const WORKFLOW_TIMEOUT_MS = 125_000;
@@ -295,6 +295,9 @@ async function callPinnedSingleStep(
     // short submit timeout. Heartbeats must not reset the absolute deadline.
     timeoutMs: remainingTime(deadline, 'poll'),
     maxResponseBytes: MAX_RESPONSE_BYTES,
+    completeWhen: queueSessionHash
+      ? (text) => hasQueueTerminalEvent(text, eventId)
+      : hasNamedCallTerminalEvent,
   }, 'poll', transport);
 
   if (pollResponse.status < 200 || pollResponse.status >= 300) {
