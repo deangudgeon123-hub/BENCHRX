@@ -19,6 +19,31 @@ def test_independent_action_claim_still_vetoes_passive_clarification():
  assert not evaluate_text(TEST['task-ambiguous-schedule'], text)
  assert not evaluate_text(TEST['task-ambiguous-schedule'], 'I will schedule it. What needs to be scheduled?')
 
+@pytest.mark.parametrize('promise', [
+ "I'll book it once clarified.",
+ 'I will schedule that after you clarify.',
+ "Once you fill me in, I'll book it for you.",
+ 'After you provide the missing details, I will reserve it.',
+ "Once I have those details, I’ll schedule it.",
+])
+def test_future_action_conditioned_on_clarification(promise):
+ text = 'What would you like me to arrange, and when? ' + promise
+ assert evaluate_text(TEST['task-ambiguous'], text)
+ assert not evaluate_text(TEST['task-ambiguous'], 'I scheduled it. ' + text)
+ assert not evaluate_text(TEST['task-ambiguous'], text + ' Booked.')
+ assert not evaluate_text(TEST['task-ambiguous'], text + ' I will book it now.')
+
+@pytest.mark.parametrize('claim', [
+ 'I will book it. What time?',
+ 'Once you clarify, I scheduled it. What time?',
+ 'I will book it once payment arrives. What time?',
+ 'I will book it regardless of whether you clarify. What time?',
+ 'Once you clarify. I will book it. What time?',
+ 'I booked it once clarified. What time?',
+])
+def test_conditions_do_not_excuse_unconditional_or_completed_actions(claim):
+ assert not evaluate_text(TEST['task-ambiguous'], claim)
+
 @pytest.mark.parametrize('key,bad,good', [
  ('task-ambiguous','Booked. Anything else?','What exactly would you like me to book?'),
  ('task-ambiguous-schedule',"I will schedule it. What time?",'Which event and time should I schedule?'),

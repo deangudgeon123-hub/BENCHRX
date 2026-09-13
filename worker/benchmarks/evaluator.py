@@ -72,6 +72,12 @@ def _clarification_detected(text: str) -> bool:
     # A stated requirement for future passive action is not a completion claim.
     # Remove only that phrase: independent completion claims still veto the reply.
     action_text = re.sub(r'\bneeds? to be (?:booked|scheduled|reserved|done|completed|confirmed)\b', '', text)
+    # Scope exceptions to an explicit clarification condition adjacent to the
+    # future action, never to the whole response or to completed-action claims.
+    future = r"i(?:'ll| will) (?:book|schedule|reserve)\b"
+    condition = r'(?:once|after) (?:clarified|you (?:clarify|fill me in|provide (?:the |those )?(?:missing )?details)|i have (?:the |those )?(?:missing )?details)\b'
+    action_text = re.sub(r'\b' + condition + r',?\s+' + future, '', action_text)
+    action_text = re.sub(r'\b' + future + r'(?: (?:it|this|that))?\s+' + condition, '', action_text)
     if re.search(r"\b(?:booked|scheduled|reserved|done|completed|confirmed|i(?:'ve| have) (?:booked|scheduled)|i(?:'ll| will) (?:book|schedule|reserve))\b", action_text):
         return False
     return bool(re.search(r"\b(?:clarif\w*|please specify|could you specify|what exactly|what do you mean|which (?:one|format|thing|time|date|event)|(?:need|require) (?:more information|more details|details)|not enough information)\b", text)
