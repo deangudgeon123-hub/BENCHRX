@@ -20,33 +20,53 @@ function completeSseBlocks(text: string): string[] {
 }
 
 function isNonFinalStatus(text: string): boolean {
-  // UI progress placeholders are transport state, not authored agent behaviour.
+  // UI progress placeholders are not assistant evidence, even when an upstream
+  // application mistakenly leaves one in its final output slot.
   return /^_Working(?:…|\.\.\.)_$/iu.test(text.trim());
 }
 
-function hasTopLevelNonFinalStatus(value: unknown): boolean {
-  if (typeof value === 'string') return isNonFinalStatus(value);
-  return Array.isArray(value) && value.some(item => typeof item === 'string' && isNonFinalStatus(item));
+const LF_BOUNDARY = Buffer.from('\n\n');
+const CRLF_BOUNDARY = Buffer.from('\r\n\r\n');
+
+function nextSseBoundary(buffer: Buffer, start: number): {index: number; length: number} | null {
+  const lf = buffer.indexOf(LF_BOUNDARY, start);
+  const crlf = buffer.indexOf(CRLF_BOUNDARY, start);
+  if (lf === -1 && crlf === -1) return null;
+  if (crlf !== -1 && (lf === -1 || crlf < lf)) return {index: crlf, length: CRLF_BOUNDARY.length};
+  return {index: lf, length: LF_BOUNDARY.length};
 }
 
-// Streaming HTTP may outlive the terminal Gradio event. These helpers only identify
-// fully framed protocol-terminal events; the normal parsers below still validate and
-// classify the retained payload before any evidence is accepted. A Gradio generator
-// may emit a fully framed `complete` snapshot containing a known UI progress marker
-// before its later final snapshot; that marker is not sufficient to close the stream.
+// Named-call Gradio SSE can emit many large `generating` snapshots before its one
+// protocol-final `complete`. Discard only fully framed, explicitly nonterminal
+// frames. Unknown, malformed, terminal and incomplete bytes are retained fail-closed.
+// This keeps the pinned request's 1 MB retained/unparsed byte cap intact without
+// treating aggregate streaming history as one response body.
+export function compactNamedCallSse(buffer: Buffer): Buffer {
+  const retained: Buffer[] = [];
+  let cursor = 0;
+  while (cursor < buffer.byteLength) {
+    const boundary = nextSseBoundary(buffer, cursor);
+    if (!boundary) break;
+    const end = boundary.index + boundary.length;
+    const block = buffer.subarray(cursor, end);
+    // Event names are ASCII protocol metadata and normally appear on the first line.
+    // Bound inspection so an unusual block cannot turn compaction into another large copy.
+    const header = block.subarray(0, Math.min(block.byteLength, 4096)).toString('utf8');
+    const event = header.split(/\r?\n/).find(line => line.startsWith('event:'))?.slice(6).trim();
+    if (event !== 'generating' && event !== 'heartbeat') retained.push(Buffer.from(block));
+    cursor = end;
+  }
+  if (cursor < buffer.byteLength) retained.push(Buffer.from(buffer.subarray(cursor)));
+  return retained.length ? Buffer.concat(retained) : Buffer.alloc(0);
+}
+
+// Gradio's named-call protocol defines `generating` as intermediate and `complete`
+// as final. Terminality is therefore trusted transport metadata, never inferred from
+// response content. Payload validation/extraction happens after transport completion.
 export function hasNamedCallTerminalEvent(text: string): boolean {
   for (const block of completeSseBlocks(text)) {
-    const lines = block.split(/\r?\n/);
-    const event = lines.find((line) => line.startsWith('event:'))?.slice(6).trim();
-    if (event === 'error') return true;
-    if (event !== 'complete') continue;
-    const data = lines.filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trimStart()).join('\n');
-    try {
-      if (hasTopLevelNonFinalStatus(JSON.parse(data))) continue;
-    } catch {
-      // A malformed completion is still terminal; parseSseComplete will classify it.
-    }
-    return true;
+    const event = block.split(/\r?\n/).find((line) => line.startsWith('event:'))?.slice(6).trim();
+    if (event === 'complete' || event === 'error') return true;
   }
   return false;
 }
@@ -68,21 +88,16 @@ export function hasQueueTerminalEvent(text: string, eventId: string): boolean {
 
 // Protocol extraction is independent of prompts, expected answers and endpoint URLs.
 export function parseSseComplete(text: string): unknown {
-  let latestCompletion: unknown;
-  let sawCompletion = false;
   for (const block of completeSseBlocks(text)) {
     const lines = block.split(/\r?\n/);
     const event = lines.find((line) => line.startsWith('event:'))?.slice(6).trim();
     const data = lines.filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trimStart()).join('\n');
     if (event === 'error') throw new GradioInvocationError('job', classifyGradioJobFailure(data));
     if (event === 'complete') {
-      try {
-        latestCompletion = JSON.parse(data);
-        sawCompletion = true;
-      } catch { throw new GradioInvocationError('completion', 'invalid_json'); }
+      try { return JSON.parse(data); }
+      catch { throw new GradioInvocationError('completion', 'invalid_json'); }
     }
   }
-  if (sawCompletion) return latestCompletion;
   throw new GradioInvocationError('completion', 'incomplete_stream');
 }
 

@@ -1,7 +1,7 @@
 import {randomUUID} from "node:crypto";
 import {namedCallCapability, queueCallCapability} from './connectors/gradio-transport.ts';
 import {GradioInvocationError} from "./gradio-errors.ts";
-import {hasNamedCallTerminalEvent, hasQueueTerminalEvent, parseSseComplete, parseQueueSseComplete} from "./gradio-output.ts";
+import {compactNamedCallSse, hasNamedCallTerminalEvent, hasQueueTerminalEvent, parseSseComplete, parseQueueSseComplete} from "./gradio-output.ts";
 import {pinnedHttpsRequest, PinnedRequestTimeoutError, PinnedResponseLimitError, type ValidatedHttpsTarget} from "./pinned-https.ts";
 const REQUEST_TIMEOUT_MS = 18_000;
 const WORKFLOW_TIMEOUT_MS = 125_000;
@@ -299,6 +299,10 @@ async function callPinnedSingleStep(
     completeWhen: queueSessionHash
       ? (text) => hasQueueTerminalEvent(text, eventId)
       : hasNamedCallTerminalEvent,
+    // Named-call generators repeat full UI snapshots in `generating` frames. Once
+    // a frame is fully parsed as explicitly nonterminal, retain no copy of it; the
+    // 1 MB cap continues to apply to terminal/unknown/incomplete bytes.
+    compactWhenIncomplete: queueSessionHash ? undefined : compactNamedCallSse,
   }, 'poll', transport);
 
   if (pollResponse.status < 200 || pollResponse.status >= 300) {

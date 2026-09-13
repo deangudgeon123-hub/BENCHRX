@@ -17,6 +17,10 @@ type PinnedRequestOptions = {
   timeoutMs: number;
   maxResponseBytes: number;
   completeWhen?: (text: string) => boolean;
+  // Streaming protocols may discard fully parsed, explicitly nonterminal frames.
+  // The returned buffer must be no larger than the input and the retained/unparsed
+  // bytes remain subject to maxResponseBytes.
+  compactWhenIncomplete?: (buffer: Buffer) => Buffer;
 };
 
 export type PinnedResponse = {
@@ -166,8 +170,7 @@ export async function pinnedHttpsRequest(
         },
       },
       (response) => {
-        const chunks: Buffer[] = [];
-        let totalBytes = 0;
+        let retained = Buffer.alloc(0);
 
         const finishResolve = () => {
           if (settled) return;
@@ -176,41 +179,84 @@ export async function pinnedHttpsRequest(
           resolve({
             status: response.statusCode ?? 0,
             headers: response.headers,
-            text: Buffer.concat(chunks, totalBytes).toString("utf8"),
+            text: retained.toString("utf8"),
           });
+        };
+
+        const compactRetained = (): boolean => {
+          if (!options.compactWhenIncomplete) return true;
+          try {
+            const next = options.compactWhenIncomplete(retained);
+            if (!Buffer.isBuffer(next) || next.byteLength > retained.byteLength) {
+              throw new Error("Invalid streaming compaction result.");
+            }
+            retained = next;
+            return true;
+          } catch {
+            finishReject(new Error("Upstream response compaction failed."));
+            response.destroy();
+            return false;
+          }
+        };
+
+        const isComplete = (): boolean | null => {
+          if (!options.completeWhen) return false;
+          try {
+            return options.completeWhen(retained.toString("utf8"));
+          } catch {
+            finishReject(new Error("Upstream response completion check failed."));
+            response.destroy();
+            return null;
+          }
+        };
+
+        const rejectLimit = () => {
+          finishReject(new PinnedResponseLimitError());
+          response.destroy();
         };
 
         response.on("aborted", () => finishReject(new Error("Upstream response aborted.")));
         response.on("error", finishReject);
         response.on("data", (chunk: Buffer | string) => {
           if (settled) return;
-          const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-          const available = options.maxResponseBytes - totalBytes;
-          const exceeded = buffer.byteLength > available;
-          // Only retain the bounded prefix. A complete protocol event inside it
-          // must not be discarded merely because trailing bytes share its chunk.
-          const retained = exceeded ? Buffer.from(buffer.subarray(0, available)) : buffer;
-          totalBytes += retained.byteLength;
-          chunks.push(retained);
+          const incoming = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          let offset = 0;
 
-          if (options.completeWhen) {
-            let complete = false;
-            try {
-              complete = options.completeWhen(Buffer.concat(chunks, totalBytes).toString("utf8"));
-            } catch {
-              finishReject(new Error("Upstream response completion check failed."));
-              response.destroy();
-              return;
+          // Consume a network chunk in bounded slices. Fully framed nonterminal
+          // streaming events may be compacted between slices, so aggregate stream
+          // history cannot force retained/unparsed bytes above the configured cap.
+          while (offset < incoming.byteLength && !settled) {
+            let available = options.maxResponseBytes - retained.byteLength;
+            if (available <= 0) {
+              if (!compactRetained()) return;
+              available = options.maxResponseBytes - retained.byteLength;
+              if (available <= 0) {
+                rejectLimit();
+                return;
+              }
             }
+
+            const take = Math.min(available, incoming.byteLength - offset);
+            retained = Buffer.concat(
+              [retained, incoming.subarray(offset, offset + take)],
+              retained.byteLength + take,
+            );
+            offset += take;
+
+            const complete = isComplete();
+            if (complete === null) return;
             if (complete) {
               finishResolve();
               response.destroy();
               return;
             }
-          }
-          if (exceeded) {
-            finishReject(new PinnedResponseLimitError());
-            response.destroy();
+
+            if (!compactRetained()) return;
+
+            if (offset < incoming.byteLength && retained.byteLength >= options.maxResponseBytes) {
+              rejectLimit();
+              return;
+            }
           }
         });
 

@@ -8,38 +8,19 @@ const target = {url: new URL('https://example.com'), hostname: 'example.com', ad
 const config = new URLSearchParams({space: target.url.href, apiName: '_run', inputs: '["{{message}}"]', outputIndex: '3'});
 const completion = (answer: string) => `event: complete\ndata: ${JSON.stringify([null, null, null, answer])}\n\n`;
 
-test('named Gradio completion keeps a known progress snapshot provisional until a later final snapshot', async () => {
+test('named Gradio complete is protocol-terminal even when final output is a non-evidence placeholder', async t => {
+  t.mock.method(console, 'warn', () => {});
   const working = completion('_Working…_');
-  const final = completion('#### You\n\n> fixture\n\n#### FrontierAgent\n\nFinal answer');
-
-  assert.equal(hasNamedCallTerminalEvent(working), false);
-  assert.equal(hasNamedCallTerminalEvent(working + final), true);
-  assert.deepEqual(parseSseComplete(working + final), [null, null, null, '#### You\n\n> fixture\n\n#### FrontierAgent\n\nFinal answer']);
+  assert.equal(hasNamedCallTerminalEvent(working), true);
+  assert.deepEqual(parseSseComplete(working), [null, null, null, '_Working…_']);
 
   const provider = createGradioConnector({
     pin: async () => target,
     request: async (_target, options) => {
       if (options.method === 'POST') return {status: 200, headers: {}, text: '{"event_id":"event-1"}'};
-      assert.equal(options.completeWhen?.(working), false);
-      assert.equal(options.completeWhen?.(working + final), true);
-      return {status: 200, headers: {}, text: working + final};
+      assert.equal(options.completeWhen?.(working), true);
+      return {status: 200, headers: {}, text: working};
     },
-  });
-
-  const result = await invokeNormalizedConnector(provider, config, {message: 'fixture'});
-  assert.equal(result.outcome, 'observed_response');
-  assert.equal(result.completed, true);
-  assert.equal(result.response, 'Final answer');
-});
-
-test('a progress snapshot remains unobserved if the upstream stream actually ends without a final answer', async t => {
-  t.mock.method(console, 'warn', () => {});
-  const working = completion('_Working…_');
-  const provider = createGradioConnector({
-    pin: async () => target,
-    request: async (_target, options) => options.method === 'POST'
-      ? {status: 200, headers: {}, text: '{"event_id":"event-1"}'}
-      : {status: 200, headers: {}, text: working},
   });
 
   const result = await invokeNormalizedConnector(provider, config, {message: 'fixture'});
@@ -49,8 +30,15 @@ test('a progress snapshot remains unobserved if the upstream stream actually end
   assert.deepEqual(result.diagnostics, {stage: 'output', code: 'progress_placeholder', stepIndex: 0});
 });
 
-test('named Gradio error events remain terminal even after a provisional progress snapshot', () => {
-  const stream = completion('_Working..._') + 'event: error\ndata: upstream failed\n\n';
+test('first protocol-terminal completion wins; response content cannot force transport continuation', () => {
+  const working = completion('_Working…_');
+  const impossibleLater = completion('#### You\n\n> fixture\n\n#### FrontierAgent\n\nLater answer');
+  assert.equal(hasNamedCallTerminalEvent(working + impossibleLater), true);
+  assert.deepEqual(parseSseComplete(working + impossibleLater), [null, null, null, '_Working…_']);
+});
+
+test('named Gradio error event remains terminal and fail-closed', () => {
+  const stream = 'event: error\ndata: upstream failed\n\n';
   assert.equal(hasNamedCallTerminalEvent(stream), true);
   assert.throws(() => parseSseComplete(stream));
 });

@@ -4,7 +4,7 @@ import https from 'node:https';
 import {EventEmitter} from 'node:events';
 import {syncBuiltinESMExports} from 'node:module';
 import {pinnedHttpsRequest, PinnedRequestTimeoutError, PinnedResponseLimitError} from '../lib/server/pinned-https.ts';
-import {hasNamedCallTerminalEvent, parseSseComplete} from '../lib/server/gradio-output.ts';
+import {compactNamedCallSse, hasNamedCallTerminalEvent, parseSseComplete} from '../lib/server/gradio-output.ts';
 
 const target = {url: new URL('https://example.com/events'), hostname: 'example.com', address: '93.184.216.34', family: 4 as const};
 
@@ -41,6 +41,38 @@ function mockedRequest(t: any) {
   syncBuiltinESMExports();
   return {response, req};
 }
+
+test('named SSE compacts fully framed intermediate snapshots while preserving the 1 MB retained cap', async t => {
+  const {response} = mockedRequest(t);
+  try {
+    const promise = pinnedHttpsRequest(target, {
+      method: 'GET', timeoutMs: 45000, maxResponseBytes: 1000000,
+      completeWhen: hasNamedCallTerminalEvent, compactWhenIncomplete: compactNamedCallSse,
+    });
+    const payload = 'x'.repeat(600000);
+    response.emit('data', Buffer.from(`event: generating\ndata: ${JSON.stringify([payload])}\n\n`));
+    response.emit('data', Buffer.from(`event: generating\ndata: ${JSON.stringify([payload])}\n\n`));
+    response.emit('data', Buffer.from('event: heartbeat\ndata: null\n\n'));
+    response.emit('data', Buffer.from('event: complete\ndata: ["final"]\n\n'));
+    const result = await promise;
+    assert.deepEqual(parseSseComplete(result.text), ['final']);
+    assert.ok(Buffer.byteLength(result.text) < 1000000);
+    assert.doesNotMatch(result.text, /event: generating|event: heartbeat/);
+  } finally {t.mock.restoreAll(); syncBuiltinESMExports();}
+});
+
+test('stream compaction never permits one oversized unfinished frame through the 1 MB cap', async t => {
+  const {response} = mockedRequest(t);
+  try {
+    const promise = pinnedHttpsRequest(target, {
+      method: 'GET', timeoutMs: 45000, maxResponseBytes: 1000000,
+      completeWhen: hasNamedCallTerminalEvent, compactWhenIncomplete: compactNamedCallSse,
+    });
+    const rejected = assert.rejects(promise, PinnedResponseLimitError);
+    response.emit('data', Buffer.from('event: generating\ndata: ["' + 'x'.repeat(1000100)));
+    await rejected;
+  } finally {t.mock.restoreAll(); syncBuiltinESMExports();}
+});
 
 test('size limit rejects oversized unfinished events and ordinary HTTP bodies with a local marker', async t => {
   for (const completeWhen of [undefined, hasNamedCallTerminalEvent]) {
