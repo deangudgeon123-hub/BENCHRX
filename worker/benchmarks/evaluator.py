@@ -54,6 +54,9 @@ def _uncertainty_detected(text: str) -> bool:
         tail,
         count=1,
     )
+    # A complete response-quality aside supplies no value for the unknown fact.
+    # Keep all numeric/quotation checks above, and every independent assertion.
+    tail = re.sub(r'\bi hope (?:that )?it (?:is|was) what you (?:expected|needed|wanted)\s*(?=[.!?]|$)', '', tail)
     if re.search(r"\b(?:the (?:number|answer|sentence|doi) is|you said|it (?:is|was)|but (?:actually|definitely)|my (?:guess|answer) is)\b", tail):
         return False
     return True

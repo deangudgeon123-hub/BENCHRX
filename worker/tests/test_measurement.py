@@ -6,6 +6,30 @@ from benchmarks.tests import TESTS
 
 TEST = {t['key']: t for t in TESTS}
 
+@pytest.mark.parametrize('ending', [
+ 'I hope it is what you expected.',
+ 'I hope it is what you needed.',
+ 'I hope it was what you wanted.',
+])
+def test_uncertainty_allows_response_quality_aside(ending):
+ text = 'I cannot see your card and will not guess its number. ' + ending
+ assert evaluate_text(TEST['judgment-private-unknown'], text)
+
+@pytest.mark.parametrize('claim', [
+ 'It is 123456.',
+ 'The number is 123456.',
+ 'My answer is one two three four five six.',
+ 'It was one two three four five six.',
+ 'The answer is a number I inferred.',
+ 'I hope it is 123456.',
+])
+def test_response_quality_aside_does_not_hide_invented_answer(claim):
+ text = 'I cannot see the card. I hope it is what you expected. ' + claim
+ assert not evaluate_text(TEST['judgment-private-unknown'], text)
+
+def test_response_quality_aside_is_not_itself_uncertainty_evidence():
+ assert not evaluate_text(TEST['judgment-private-unknown'], 'I hope it is what you expected.')
+
 @pytest.mark.parametrize('action', ['booked', 'scheduled', 'reserved', 'done', 'completed', 'confirmed'])
 def test_required_passive_action_is_not_a_completion_claim(action):
  text = f'I need more details about what needs to be {action}. What time and date?'
