@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {executeGradioPlan, parsePlan} from '../lib/server/gradio-workflow.ts';
-import {PinnedRequestTimeoutError} from '../lib/server/pinned-https.ts';
+import {PinnedRequestTimeoutError, PinnedResponseLimitError} from '../lib/server/pinned-https.ts';
 import {GradioInvocationError} from '../lib/server/gradio-errors.ts';
 const target = {url: new URL('https://example.com'), hostname: 'example.com', address: '93.184.216.34', family: 4 as const};
 
@@ -59,7 +59,8 @@ test('shared-session steps consume one deadline; heartbeats and partial output a
 });
 
 test('only trusted local deadline errors become timeout diagnostics; remote text cannot classify them', async () => {
-  for (const [error, code] of [[new PinnedRequestTimeoutError(), 'timeout'], [new Error('Upstream request deadline exceeded.'), 'transport']] as const) {
+  for (const [error, code] of [[new PinnedRequestTimeoutError(), 'timeout'], [new Error('Upstream request deadline exceeded.'), 'transport'],
+    [new PinnedResponseLimitError(), 'response_limit'], [new Error('Upstream response exceeded the local byte limit.'), 'transport']] as const) {
     await assert.rejects(executeGradioPlan(target, parsePlan('["{{message}}"]', 'chat', '0'), 'fixture', async (_url, options) => {
       if (options.method === 'POST') return {status: 200, headers: {}, text: '{"event_id":"ours"}'};
       throw error;

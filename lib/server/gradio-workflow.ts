@@ -2,7 +2,7 @@ import {randomUUID} from "node:crypto";
 import {namedCallCapability, queueCallCapability} from './connectors/gradio-transport.ts';
 import {GradioInvocationError} from "./gradio-errors.ts";
 import {hasNamedCallTerminalEvent, hasQueueTerminalEvent, parseSseComplete, parseQueueSseComplete} from "./gradio-output.ts";
-import {pinnedHttpsRequest, PinnedRequestTimeoutError, type ValidatedHttpsTarget} from "./pinned-https.ts";
+import {pinnedHttpsRequest, PinnedRequestTimeoutError, PinnedResponseLimitError, type ValidatedHttpsTarget} from "./pinned-https.ts";
 const REQUEST_TIMEOUT_MS = 18_000;
 const WORKFLOW_TIMEOUT_MS = 125_000;
 const MAX_RESPONSE_BYTES = 1_000_000;
@@ -193,7 +193,8 @@ async function requestOrInvocationError(
   transport: typeof pinnedHttpsRequest,
 ) {
   return transport(target, options).catch(error => {
-    throw new GradioInvocationError(stage, error instanceof PinnedRequestTimeoutError ? 'timeout' : 'transport');
+    throw new GradioInvocationError(stage, error instanceof PinnedRequestTimeoutError ? 'timeout'
+      : error instanceof PinnedResponseLimitError ? 'response_limit' : 'transport');
   });
 }
 

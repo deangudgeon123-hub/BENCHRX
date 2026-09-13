@@ -121,6 +121,33 @@ export function extractAssistantText(value: unknown): string {
   return '';
 }
 
+// Fixed structural diagnostics only; never return role names or content from the payload.
+export function assistantOutputDiagnostic(value: unknown):
+  'assistant_output' | 'empty_assistant' | 'progress_placeholder' | 'trailing_user'
+  | 'no_assistant_section' | 'unsupported_shape' {
+  if (extractAssistantText(value)) return 'assistant_output';
+  let selected: unknown = value;
+  if (Array.isArray(value)) {
+    if (!value.length) return 'empty_assistant';
+    if (value.every(item => item && typeof item === 'object' && !Array.isArray(item) && 'role' in item)) {
+      selected = value[value.length - 1];
+    } else if (value.every(item => Array.isArray(item) && item.length === 2)) {
+      selected = value[value.length - 1][1];
+      if (selected == null) return 'empty_assistant';
+    } else return 'unsupported_shape';
+  }
+  if (selected && typeof selected === 'object') {
+    const message = selected as {role?: unknown; content?: unknown};
+    if (message.role === 'user') return 'trailing_user';
+    if (message.role !== 'assistant') return 'unsupported_shape';
+    selected = message.content;
+  }
+  if (typeof selected !== 'string') return 'unsupported_shape';
+  const transcript = extractMarkdownTranscriptAssistant(selected);
+  if (transcript === '') return 'no_assistant_section';
+  return isNonFinalStatus(transcript ?? selected) ? 'progress_placeholder' : 'empty_assistant';
+}
+
 // /queue/data multiplexes session messages. Only this submitted event can complete the step.
 export function parseQueueSseComplete(text: string, eventId: string): unknown {
   for (const block of completeSseBlocks(text)) {

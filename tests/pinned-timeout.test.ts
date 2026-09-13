@@ -3,15 +3,28 @@ import assert from 'node:assert/strict';
 import https from 'node:https';
 import {EventEmitter} from 'node:events';
 import {syncBuiltinESMExports} from 'node:module';
-import {pinnedHttpsRequest, PinnedRequestTimeoutError} from '../lib/server/pinned-https.ts';
+import {pinnedHttpsRequest, PinnedRequestTimeoutError, PinnedResponseLimitError} from '../lib/server/pinned-https.ts';
+import {hasNamedCallTerminalEvent, parseSseComplete} from '../lib/server/gradio-output.ts';
 
 const target = {url: new URL('https://example.com/events'), hostname: 'example.com', address: '93.184.216.34', family: 4 as const};
+
+test('completion inside the cap survives trailing data in the same network chunk', async t => {
+  const {response} = mockedRequest(t);
+  try {
+    const promise = pinnedHttpsRequest(target, {method: 'GET', timeoutMs: 45000,
+      maxResponseBytes: 1000000, completeWhen: hasNamedCallTerminalEvent});
+    response.emit('data', Buffer.from('event: complete\ndata: ["done"]\n\n' + 'x'.repeat(1000000)));
+    const result = await promise;
+    assert.deepEqual(parseSseComplete(result.text), ['done']);
+    assert.ok(Buffer.byteLength(result.text) <= 1000000);
+  } finally {t.mock.restoreAll(); syncBuiltinESMExports();}
+});
 
 function mockedRequest(t: any) {
   const response = Object.assign(new EventEmitter(), {
     statusCode: 200,
     headers: {'content-type': 'text/event-stream'},
-    destroy() { this.emit('aborted'); },
+    destroy(this: EventEmitter) { this.emit('aborted'); },
   });
   const events = new EventEmitter();
   const req = Object.assign(events, {
@@ -28,6 +41,31 @@ function mockedRequest(t: any) {
   syncBuiltinESMExports();
   return {response, req};
 }
+
+test('size limit rejects oversized unfinished events and ordinary HTTP bodies with a local marker', async t => {
+  for (const completeWhen of [undefined, hasNamedCallTerminalEvent]) {
+    const {response} = mockedRequest(t);
+    try {
+      const promise = pinnedHttpsRequest(target, {method: 'GET', timeoutMs: 45000,
+        maxResponseBytes: 1000000, completeWhen});
+      const rejected = assert.rejects(promise, PinnedResponseLimitError);
+      response.emit('data', Buffer.from('event: complete\ndata: ["' + 'x'.repeat(1000000) + '"]\n\n'));
+      response.emit('end'); // Cleanup must not turn rejection into success.
+      await rejected;
+    } finally {t.mock.restoreAll(); syncBuiltinESMExports();}
+  }
+});
+
+test('framed malformed completion still fails payload validation', async t => {
+  const {response} = mockedRequest(t);
+  try {
+    const promise = pinnedHttpsRequest(target, {method: 'GET', timeoutMs: 45000,
+      maxResponseBytes: 1000000, completeWhen: hasNamedCallTerminalEvent});
+    response.emit('data', Buffer.from('event: complete\ndata: not-json\n\n'));
+    const awaited = await promise;
+    assert.throws(() => parseSseComplete(awaited.text), /invalid_json/);
+  } finally {t.mock.restoreAll(); syncBuiltinESMExports();}
+});
 
 test('pinned HTTPS absolute deadline survives continuous SSE heartbeats and remains bounded', async t => {
   t.mock.timers.enable({apis: ['setTimeout']});

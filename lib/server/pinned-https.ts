@@ -117,6 +117,11 @@ export class PinnedRequestTimeoutError extends Error {
   constructor() { super("Upstream request deadline exceeded."); }
 }
 
+// A local resource limit, never inferred from a remote error message.
+export class PinnedResponseLimitError extends Error {
+  constructor() { super("Upstream response exceeded the local byte limit."); }
+}
+
 export async function pinnedHttpsRequest(
   target: ValidatedHttpsTarget,
   options: PinnedRequestOptions
@@ -180,12 +185,13 @@ export async function pinnedHttpsRequest(
         response.on("data", (chunk: Buffer | string) => {
           if (settled) return;
           const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-          totalBytes += buffer.byteLength;
-          if (totalBytes > options.maxResponseBytes) {
-            req.destroy(new Error("Upstream response was too large."));
-            return;
-          }
-          chunks.push(buffer);
+          const available = options.maxResponseBytes - totalBytes;
+          const exceeded = buffer.byteLength > available;
+          // Only retain the bounded prefix. A complete protocol event inside it
+          // must not be discarded merely because trailing bytes share its chunk.
+          const retained = exceeded ? Buffer.from(buffer.subarray(0, available)) : buffer;
+          totalBytes += retained.byteLength;
+          chunks.push(retained);
 
           if (options.completeWhen) {
             let complete = false;
@@ -199,7 +205,12 @@ export async function pinnedHttpsRequest(
             if (complete) {
               finishResolve();
               response.destroy();
+              return;
             }
+          }
+          if (exceeded) {
+            finishReject(new PinnedResponseLimitError());
+            response.destroy();
           }
         });
 
