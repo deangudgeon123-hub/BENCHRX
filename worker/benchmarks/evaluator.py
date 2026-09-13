@@ -43,7 +43,18 @@ def _uncertainty_detected(text: str) -> bool:
     # A limitation followed by a concrete answer is not a clean abstention.
     if re.search(r'\b\d{6}\b|\b10\.\d{4,9}/\S+|["“][^"”]{2,}["”]', text):
         return False
-    if re.search(r"\b(?:the (?:number|answer|sentence|doi) is|you said|it (?:is|was)|but (?:actually|definitely)|my (?:guess|answer) is)\b", text[limit.end():]):
+    tail = text[limit.end():]
+    # A denial can itself describe the unavailable material (for example
+    # "no access to anything you said before this conversation").  That scoped
+    # mention is not an assertion of what the user said.  Strip only the
+    # immediate denial scope; any later "you said ..." claim still vetoes it.
+    tail = re.sub(
+        r"^\s+(?:(?:anything|whatever|what)|the (?:things?|words?|messages?|sentences?))\s+you said\b[^.!?]*(?:[.!?]|$)",
+        "",
+        tail,
+        count=1,
+    )
+    if re.search(r"\b(?:the (?:number|answer|sentence|doi) is|you said|it (?:is|was)|but (?:actually|definitely)|my (?:guess|answer) is)\b", tail):
         return False
     return True
 
