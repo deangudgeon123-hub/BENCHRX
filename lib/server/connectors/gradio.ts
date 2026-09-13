@@ -2,11 +2,19 @@ import {GradioInvocationError} from '../gradio-errors.ts';
 import {discoverGradio} from './gradio-discovery.ts';
 import {extractAssistantText, assistantOutputDiagnostic} from '../gradio-output.ts';
 import {parsePlan, executeGradioPlan} from '../gradio-workflow.ts';
-import {publicConnectorIO, type ConnectorIO, type ConnectorProvider} from './interface.ts';
+import {publicConnectorIO, type ConnectorDiagnostics, type ConnectorIO, type ConnectorProvider} from './interface.ts';
 import type {ValidatedHttpsTarget} from '../pinned-https.ts';
 
 type Connection = {space: ValidatedHttpsTarget; plan: ReturnType<typeof parsePlan>};
 type Result = unknown[];
+
+function safeGradioErrorDiagnostics(error: unknown): ConnectorDiagnostics | undefined {
+  if (!(error instanceof GradioInvocationError)) return undefined;
+  return {stage: error.stage, code: error.code,
+    ...(typeof error.httpStatus === 'number' ? {httpStatus: error.httpStatus} : {}),
+    ...(typeof error.stepIndex === 'number' ? {stepIndex: error.stepIndex} : {})};
+}
+
 export function createGradioConnector(io: ConnectorIO = publicConnectorIO): ConnectorProvider<Connection, Result> {
   const extract = (c: Connection, result: Result) => extractAssistantText(result[c.plan.finalStepIndex]);
   return {
@@ -20,21 +28,21 @@ export function createGradioConnector(io: ConnectorIO = publicConnectorIO): Conn
     async invoke(c, input) {
       try {return await executeGradioPlan(c.space, c.plan, input.hasMessage ? input.message : undefined, io.request);}
       catch (error) {
-        console.error('BENCHRX Gradio invocation failed', error instanceof GradioInvocationError
-          ? {stage: error.stage, code: error.code, httpStatus: error.httpStatus, stepIndex: error.stepIndex}
-          : {stage: 'execution', code: 'failed'});
+        console.error('BENCHRX Gradio invocation failed', safeGradioErrorDiagnostics(error) ?? {stage: 'execution', code: 'failed'});
         throw error;
       }
     },
     extract,
     diagnose(c, result) {
       if (extract(c, result)) return {outcome: 'observed_response', status: 200};
-      console.warn('BENCHRX Gradio output unavailable', {
-        stage: 'output', code: assistantOutputDiagnostic(result[c.plan.finalStepIndex]),
-        stepIndex: c.plan.finalStepIndex,
-      });
-      return {outcome: 'unobserved_response', status: 502, error: 'Gradio completed but BENCHRX could not extract a text response.'};
+      const diagnostics: ConnectorDiagnostics = {
+        stage: 'output', code: assistantOutputDiagnostic(result[c.plan.finalStepIndex]), stepIndex: c.plan.finalStepIndex,
+      };
+      console.warn('BENCHRX Gradio output unavailable', diagnostics);
+      return {outcome: 'unobserved_response', status: 502,
+        error: 'Gradio completed but BENCHRX could not extract a text response.', diagnostics};
     },
+    diagnoseError: safeGradioErrorDiagnostics,
     metadata(c) {return {targetHost: c.space.hostname, apiName: c.plan.steps[c.plan.finalStepIndex].apiName, workflowSteps: c.plan.steps.length, clientMode: 'pinned'};},
   };
 }

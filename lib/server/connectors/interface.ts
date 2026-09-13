@@ -8,7 +8,8 @@ export type ConnectorIO = {
 export const publicConnectorIO: ConnectorIO = {pin: validateAndPinPublicHttpsUrl, request: pinnedHttpsRequest};
 export type InvocationInput = {hasMessage: boolean; message: unknown};
 export type ConnectorOutcome = 'observed_response' | 'unobserved_response' | 'connector_failure';
-export type ConnectorDiagnosis = {status: number; outcome: ConnectorOutcome; error?: string};
+export type ConnectorDiagnostics = {stage: string; code: string; httpStatus?: number; stepIndex?: number};
+export type ConnectorDiagnosis = {status: number; outcome: ConnectorOutcome; error?: string; diagnostics?: ConnectorDiagnostics};
 export type AdapterReply = {status: number; body: Record<string, unknown>};
 
 // Validation prepares a pinned public connection; invoke never rediscovers or changes recipes.
@@ -19,6 +20,7 @@ export interface ConnectorProvider<Connection, Result> {
   invoke(connection: Connection, input: InvocationInput): Promise<Result>;
   extract(connection: Connection, result: Result): string;
   diagnose(connection: Connection, result: Result): ConnectorDiagnosis;
+  diagnoseError?(error: unknown): ConnectorDiagnostics | undefined;
   metadata(connection: Connection): Record<string, unknown>;
 }
 
@@ -30,6 +32,7 @@ export type NormalizedConnectorResponse = {
   status: number;
   completed: boolean;
   error?: string;
+  diagnostics?: ConnectorDiagnostics;
   metadata: Record<string, unknown>;
 };
 
@@ -42,18 +45,25 @@ export async function invokeNormalizedConnector<C, R>(provider: ConnectorProvide
     const diagnosis = provider.diagnose(connection, result);
     return {provider: provider.id, outcome: diagnosis.outcome, status: diagnosis.status,
       completed: true, response: diagnosis.outcome === 'observed_response' ? provider.extract(connection, result) : null,
-      ...(diagnosis.error ? {error: diagnosis.error} : {}), metadata: provider.metadata(connection)};
-  } catch {
-    // No exception text or upstream payload escapes through this contract.
+      ...(diagnosis.error ? {error: diagnosis.error} : {}),
+      ...(diagnosis.diagnostics ? {diagnostics: diagnosis.diagnostics} : {}), metadata: provider.metadata(connection)};
+  } catch (error) {
+    // No exception text or upstream payload escapes through this contract. A provider may
+    // preserve only its fixed, content-free diagnostic fields for operator evidence.
+    const diagnostics = provider.diagnoseError?.(error);
     return {provider: provider.id, outcome: 'connector_failure', status: 502,
-      completed: false, response: null, error: 'Connector execution failed', metadata: {}};
+      completed: false, response: null, error: 'Connector execution failed',
+      ...(diagnostics ? {diagnostics} : {}), metadata: {}};
   }
 }
 
 export async function invokeConnector<C, R>(provider: ConnectorProvider<C, R>, config: URLSearchParams, incoming: Record<string, unknown>): Promise<AdapterReply> {
   const result = await invokeNormalizedConnector(provider, config, incoming);
-  // Preserve the worker protocol. No new body flag can change trusted observation handling.
-  return {status: result.status, body: result.response === null ? {error: result.error} : {
+  // Preserve the worker protocol. Diagnostics are evidence-only response fields; they
+  // never determine trusted observation, completion, status, or scoring.
+  return {status: result.status, body: result.response === null ? {
+    error: result.error, ...(result.diagnostics ? {diagnostics: result.diagnostics} : {}),
+  } : {
     response: result.response, provider: result.provider, ...result.metadata,
   }};
 }
