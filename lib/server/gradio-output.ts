@@ -19,13 +19,34 @@ function completeSseBlocks(text: string): string[] {
   return text.split(/\r?\n\r?\n/).slice(0, -1);
 }
 
+function isNonFinalStatus(text: string): boolean {
+  // UI progress placeholders are transport state, not authored agent behaviour.
+  return /^_Working(?:…|\.\.\.)_$/iu.test(text.trim());
+}
+
+function hasTopLevelNonFinalStatus(value: unknown): boolean {
+  if (typeof value === 'string') return isNonFinalStatus(value);
+  return Array.isArray(value) && value.some(item => typeof item === 'string' && isNonFinalStatus(item));
+}
+
 // Streaming HTTP may outlive the terminal Gradio event. These helpers only identify
 // fully framed protocol-terminal events; the normal parsers below still validate and
-// classify the retained payload before any evidence is accepted.
+// classify the retained payload before any evidence is accepted. A Gradio generator
+// may emit a fully framed `complete` snapshot containing a known UI progress marker
+// before its later final snapshot; that marker is not sufficient to close the stream.
 export function hasNamedCallTerminalEvent(text: string): boolean {
   for (const block of completeSseBlocks(text)) {
-    const event = block.split(/\r?\n/).find((line) => line.startsWith('event:'))?.slice(6).trim();
-    if (event === 'complete' || event === 'error') return true;
+    const lines = block.split(/\r?\n/);
+    const event = lines.find((line) => line.startsWith('event:'))?.slice(6).trim();
+    if (event === 'error') return true;
+    if (event !== 'complete') continue;
+    const data = lines.filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trimStart()).join('\n');
+    try {
+      if (hasTopLevelNonFinalStatus(JSON.parse(data))) continue;
+    } catch {
+      // A malformed completion is still terminal; parseSseComplete will classify it.
+    }
+    return true;
   }
   return false;
 }
@@ -47,16 +68,21 @@ export function hasQueueTerminalEvent(text: string, eventId: string): boolean {
 
 // Protocol extraction is independent of prompts, expected answers and endpoint URLs.
 export function parseSseComplete(text: string): unknown {
+  let latestCompletion: unknown;
+  let sawCompletion = false;
   for (const block of completeSseBlocks(text)) {
     const lines = block.split(/\r?\n/);
     const event = lines.find((line) => line.startsWith('event:'))?.slice(6).trim();
     const data = lines.filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trimStart()).join('\n');
     if (event === 'error') throw new GradioInvocationError('job', classifyGradioJobFailure(data));
     if (event === 'complete') {
-      try { return JSON.parse(data); }
-      catch { throw new GradioInvocationError('completion', 'invalid_json'); }
+      try {
+        latestCompletion = JSON.parse(data);
+        sawCompletion = true;
+      } catch { throw new GradioInvocationError('completion', 'invalid_json'); }
     }
   }
+  if (sawCompletion) return latestCompletion;
   throw new GradioInvocationError('completion', 'incomplete_stream');
 }
 
@@ -80,11 +106,6 @@ function extractMarkdownTranscriptAssistant(text: string): string | null {
   const boundary = /\r?\n\r?\n#### ([^\r\n]+)\r?\n\r?\n/u.exec(trimmed);
   if (!boundary || boundary[1].trim().toLowerCase() === 'you') return '';
   return trimmed.slice((boundary.index ?? 0) + boundary[0].length).trim();
-}
-
-function isNonFinalStatus(text: string): boolean {
-  // UI progress placeholders are transport state, not authored agent behaviour.
-  return /^_Working(?:…|\.\.\.)_$/iu.test(text.trim());
 }
 
 export function extractAssistantText(value: unknown): string {
