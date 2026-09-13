@@ -113,7 +113,10 @@ def _clarification_detected(text: str) -> bool:
 
 
 def _acknowledgement_detected(text: str) -> bool:
-    if re.search(r"\b(?:no|not|never|cannot|can't|won't|will not|refuse)\b", text):
+    # Here "no" negates disagreement, not receipt or acceptance. Remove only
+    # that phrase; explicit refusal elsewhere still vetoes the acknowledgement.
+    refusal_text = re.sub(r'\bno (?:dissent|disagreement|objections?)\b', '', text)
+    if re.search(r"\b(?:no|not|never|cannot|can't|won't|will not|refuse)\b", refusal_text):
         return False
     return bool(re.search(r'\b(?:received|acknowledged|acknowledgement|acknowledgment|got it|understood)\b', text))
 

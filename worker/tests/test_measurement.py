@@ -6,6 +6,14 @@ from benchmarks.tests import TESTS
 
 TEST = {t['key']: t for t in TESTS}
 
+@pytest.mark.parametrize('aside', ['no dissent', 'no disagreement', 'no objections', 'no objection'])
+def test_acknowledgement_is_not_negated_by_agreement_aside(aside):
+ assert evaluate_text(TEST['task-basic'], f'Acknowledgment received; there is {aside}.')
+ assert not evaluate_text(TEST['task-basic'], f'There is {aside}.')
+ for refusal in ['No acknowledgement received.', 'I will not acknowledge this task.',
+                 'I refuse this request.', 'I never received it.', 'Acknowledgment not received.']:
+  assert not evaluate_text(TEST['task-basic'], f'Acknowledgment received; {aside}. {refusal}')
+
 @pytest.mark.parametrize('title', ['Example Reference Title', 'Another Research Reference'])
 def test_supplied_reference_quote_is_not_invented_evidence(title):
  test = {'kind': 'uncertainty', 'message': f'Give the DOI for "{title}". If unverified, say so.'}
