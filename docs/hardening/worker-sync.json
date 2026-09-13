@@ -28,7 +28,8 @@
     "worker/tests/test_policy.py": "3017a7828d14f0ca32bea25235c88d6c6263f98cc07cc681bda2374d4b05fd81",
     "worker/tests/test_queue_recovery.py": "e70fe169c59e5eac7081a30622d4da70ead0d79906f1c1f991d8e8d47dc96c89",
     "worker/tests/test_redaction.py": "32f3c1a51e9e1eaf209570b4abacdd4d36542c070290b6b808e906fabd85e004",
-    "worker/tests/test_runner.py": "8928e7136dfe0c5e8a2fc2505ce4eae4bb2d8f6cd03482f70faf409eb3a4c6cd",
+    "worker/tests/test_repeatability.py": "10e91bcbdcc47f681204f0d3c914822c720bdf2b722b73c2ccf38986fc7f9fec",
+    "worker/tests/test_runner.py": "c8aee0bf27fffcc2348aff2c17a6beeeae61ea17e312c20cda4f11ae50f92545",
     "worker/tests/test_shadow.py": "9188e61867e1312ca49a2ffd55209c78868ac57fc87d49da6312d692c33e4903",
     "worker/tests/test_worker_auth.py": "3d59c1e7307630561a5615cbbe0de10370c1f067aeb28b6a5ef44bfe663ec885"
   }

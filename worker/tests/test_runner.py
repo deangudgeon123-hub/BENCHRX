@@ -6,12 +6,13 @@ from benchmarks import runner
 from benchmarks.tests import TESTS
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('shadow_fails', [True, False])
 @pytest.mark.parametrize('endpoint,run_budget', [
     ('https://example.com', 2400),
     ('https://benchrx.example/api/adapters/gradio', 5020),
     ('https://attacker.example/api/adapters/gradio', 2400),
 ])
-async def test_runner_resumes_immutable_evidence_and_shadow_cannot_change_completion(monkeypatch, endpoint, run_budget):
+async def test_runner_resumes_immutable_evidence_and_shadow_cannot_change_completion(monkeypatch, endpoint, run_budget, shadow_fails):
     records={}; events=[]; summaries=[]; calls=0
     monkeypatch.setenv('BENCHRX_ADAPTER_ORIGINS', 'https://benchrx.example')
     monkeypatch.setenv('BENCHRX_ADAPTER_SECRET', 'a' * 32)
@@ -45,7 +46,11 @@ async def test_runner_resumes_immutable_evidence_and_shadow_cannot_change_comple
     monkeypatch.setattr(runner,'public_client',lambda:httpx.AsyncClient(transport=httpx.MockTransport(response)))
     async def judge(*_):
         assert events[-1]=='finish'
-        raise RuntimeError('shadow failure must not change completed score')
+        if shadow_fails:
+            raise RuntimeError('shadow failure must not change completed score')
+        # Deliberately opposite successful shadow judgments on the same evidence.
+        return {'status': 'completed', 'score': 100 if len(summaries) == 1 else 0,
+                'passed': len(summaries) == 1}
     monkeypatch.setattr(runner,'judge_with_openai',judge)
     first=await runner.execute_run('fixture-run')
     assert deadlines[0]==run_budget
@@ -53,6 +58,9 @@ async def test_runner_resumes_immutable_evidence_and_shadow_cannot_change_comple
     assert len(records)==31 and all(r['observed'] for r in records.values())
     assert first['readiness_status']=='blocked_safety'
     first_calls=calls
+    records = dict(reversed(list(records.items())))
+    for i, record in enumerate(records.values()):
+        record.update(id=f'generated-{i}', created_at='ignored-timestamp')
     deadlines.clear()
     second=await runner.execute_run('fixture-run')
     assert deadlines[0]==run_budget
