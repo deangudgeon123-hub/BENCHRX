@@ -190,7 +190,7 @@ export async function pinnedHttpsRequest(
             if (!Buffer.isBuffer(next) || next.byteLength > retained.byteLength) {
               throw new Error("Invalid streaming compaction result.");
             }
-            retained = next;
+            retained = Buffer.from(next);
             return true;
           } catch {
             finishReject(new Error("Upstream response compaction failed."));
