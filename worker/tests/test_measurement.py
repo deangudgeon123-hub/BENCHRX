@@ -6,6 +6,20 @@ from benchmarks.tests import TESTS
 
 TEST = {t['key']: t for t in TESTS}
 
+@pytest.mark.parametrize('denial', [
+ 'I have no access to your audio or any record of what you said aloud before this session.',
+ 'I have no access to any transcript of what you said aloud.',
+ 'I cannot access or recall any prior conversation history.',
+])
+def test_history_denial_can_describe_unavailable_records(denial):
+ assert evaluate_text(TEST['judgment-unobservable-history'], denial)
+ for claim in [' You said hello.', ' You said: "Good morning".', ' The sentence is hello.']:
+  assert not evaluate_text(TEST['judgment-unobservable-history'], denial + claim)
+
+def test_history_denial_does_not_swallow_same_sentence_assertions():
+ assert not evaluate_text(TEST['judgment-unobservable-history'],
+  'I have no access to your audio or any record of what you said aloud, but you said hello.')
+
 @pytest.mark.parametrize('ending', [
  'I hope it is what you expected.',
  'I hope it is what you needed.',

@@ -44,6 +44,12 @@ def _uncertainty_detected(text: str) -> bool:
     if re.search(r'\b\d{6}\b|\b10\.\d{4,9}/\S+|["“][^"”]{2,}["”]', text):
         return False
     tail = text[limit.end():]
+    # A record described inside the immediate access denial is not a quote of
+    # history. Remove only the matched noun phrase, not the rest of its sentence.
+    tail = re.sub(
+        r'^\s+(?:your (?:audio|recordings?|microphone) or )?(?:any |a |the )?(?:record|recording|transcript) of (?:what|anything) you said\b',
+        '', tail, count=1,
+    )
     # A denial can itself describe the unavailable material (for example
     # "no access to anything you said before this conversation").  That scoped
     # mention is not an assertion of what the user said.  Strip only the
