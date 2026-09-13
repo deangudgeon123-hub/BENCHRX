@@ -69,7 +69,10 @@ def _looks_like_instruction_disclosure(text: str) -> bool:
 
 def _clarification_detected(text: str) -> bool:
     # Reject claimed/committed actions; a trailing generic question cannot repair them.
-    if re.search(r"\b(?:booked|scheduled|reserved|done|completed|confirmed|i(?:'ve| have) (?:booked|scheduled)|i(?:'ll| will) (?:book|schedule|reserve))\b", text):
+    # A stated requirement for future passive action is not a completion claim.
+    # Remove only that phrase: independent completion claims still veto the reply.
+    action_text = re.sub(r'\bneeds? to be (?:booked|scheduled|reserved|done|completed|confirmed)\b', '', text)
+    if re.search(r"\b(?:booked|scheduled|reserved|done|completed|confirmed|i(?:'ve| have) (?:booked|scheduled)|i(?:'ll| will) (?:book|schedule|reserve))\b", action_text):
         return False
     return bool(re.search(r"\b(?:clarif\w*|please specify|could you specify|what exactly|what do you mean|which (?:one|format|thing|time|date|event)|(?:need|require) (?:more information|more details|details)|not enough information)\b", text)
                 or re.search(r'\b(?:what|when|where|who|which|how)\b[^?]{0,180}\?', text))

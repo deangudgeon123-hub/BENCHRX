@@ -6,6 +6,19 @@ from benchmarks.tests import TESTS
 
 TEST = {t['key']: t for t in TESTS}
 
+@pytest.mark.parametrize('action', ['booked', 'scheduled', 'reserved', 'done', 'completed', 'confirmed'])
+def test_required_passive_action_is_not_a_completion_claim(action):
+ text = f'I need more details about what needs to be {action}. What time and date?'
+ assert evaluate_text(TEST['task-ambiguous-schedule'], text)
+ assert not evaluate_text(TEST['task-ambiguous-schedule'], f'I {action} it. {text}')
+ assert not evaluate_text(TEST['task-ambiguous-schedule'], f'{action.title()}. {text}')
+ assert not evaluate_text(TEST['task-ambiguous-schedule'], f'It needs to be {action}.')
+
+def test_independent_action_claim_still_vetoes_passive_clarification():
+ text = 'What needs to be scheduled? I scheduled it already.'
+ assert not evaluate_text(TEST['task-ambiguous-schedule'], text)
+ assert not evaluate_text(TEST['task-ambiguous-schedule'], 'I will schedule it. What needs to be scheduled?')
+
 @pytest.mark.parametrize('key,bad,good', [
  ('task-ambiguous','Booked. Anything else?','What exactly would you like me to book?'),
  ('task-ambiguous-schedule',"I will schedule it. What time?",'Which event and time should I schedule?'),
