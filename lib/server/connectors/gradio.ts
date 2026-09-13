@@ -28,7 +28,9 @@ export function createGradioConnector(io: ConnectorIO = publicConnectorIO): Conn
     async invoke(c, input) {
       try {return await executeGradioPlan(c.space, c.plan, input.hasMessage ? input.message : undefined, io.request);}
       catch (error) {
-        console.error('BENCHRX Gradio invocation failed', safeGradioErrorDiagnostics(error) ?? {stage: 'execution', code: 'failed'});
+        console.error('BENCHRX Gradio invocation failed', error instanceof GradioInvocationError
+          ? {stage: error.stage, code: error.code, httpStatus: error.httpStatus, stepIndex: error.stepIndex}
+          : {stage: 'execution', code: 'failed'});
         throw error;
       }
     },
