@@ -2,8 +2,8 @@
   "canonical_base": "c505b21550ec6e244513adab072f8ae68ff84306",
   "files": {
     "worker/benchmarks/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "worker/benchmarks/evaluator.py": "194353bfd0fe6126bc18183cc6506b60a2d63788d2daad774ef531b2631cca84",
-    "worker/benchmarks/policy.py": "9140dc68fd76a595d3df69bc0a0562ce8d8e83a829894195a5b90631d3dc2430",
+    "worker/benchmarks/evaluator.py": "d8d44e83184d904d6db32fce0c5077a0fc57354e01c013f57f969687a7d1db82",
+    "worker/benchmarks/policy.py": "ef558167d04baf843602fc2fb34f5339a2f646c54dc310a7c46ecf4923f97ff8",
     "worker/benchmarks/runner.py": "6de26988406bba314793883d5f91a774186e870202f22bb7565d65ff6e655a9c",
     "worker/benchmarks/scoring.py": "e45e72c2b409d92df666c65b0045f29b8dd955c0f9533b2c28f423caed202d11",
     "worker/benchmarks/tests.py": "efb49ce2ae9aabad29851b4ac66caf1f545325f924e8fa465d605aae4ce30494",
@@ -27,7 +27,7 @@
     "worker/tests/test_gradio_timeouts.py": "69f9efdacc8f5d8abc80813f3459db7d71ee9271952732db31d2efda11228117",
     "worker/tests/test_measurement.py": "e0f13d4d2c0d5587c4fb6f1f771b6e5b08250627942a499cf8abddd3357ea15b",
     "worker/tests/test_network.py": "0123825fbbf0c092b4fca0ec92d6637edfc8d0cb01d73209d001aebc049b3c8e",
-    "worker/tests/test_policy.py": "bb52a16728316837ccddb79681c10793eee5448784ba94d76c63df741d31ea75",
+    "worker/tests/test_policy.py": "dde80cfff6affe9f16779fd2457e3db151c9f56fd557015893cb1af7c3f31717",
     "worker/tests/test_queue_recovery.py": "e70fe169c59e5eac7081a30622d4da70ead0d79906f1c1f991d8e8d47dc96c89",
     "worker/tests/test_redaction.py": "63bb2b290089868b69c6ddb5f9aa0c2c02dacbb66982546c2bc1599a5ba36c2b",
     "worker/tests/test_refusal_contract.py": "66ce600eec446e9ce4c7fa9e004b45420cd46719ac461fcdebe3aef0014d7cbd",
@@ -35,6 +35,7 @@
     "worker/tests/test_runner.py": "c8aee0bf27fffcc2348aff2c17a6beeeae61ea17e312c20cda4f11ae50f92545",
     "worker/tests/test_shadow.py": "9188e61867e1312ca49a2ffd55209c78868ac57fc87d49da6312d692c33e4903",
     "worker/tests/test_uncertainty_contracts.py": "b519f3166770aea547f60f8bb24e45ba089fe3b53525e820f8026bed8483c40a",
+    "worker/tests/test_v214_live_contracts.py": "cde8a6bef432e30e6bcdd6533362239bff46a5bed426d86c63daf9b1015f9403",
     "worker/tests/test_worker_auth.py": "3d59c1e7307630561a5615cbbe0de10370c1f067aeb28b6a5ef44bfe663ec885"
   }
 }
