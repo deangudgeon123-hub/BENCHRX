@@ -31,8 +31,9 @@ if not args.compare and set(paths) != set(expected):
 for path, digest in expected.items():
     try:
         data = subprocess.check_output(['git', 'show', f'{args.compare}:{path}'], cwd=ROOT, stderr=subprocess.DEVNULL) if args.compare else (ROOT / path).read_bytes()
-        if hashlib.sha256(data).hexdigest() != digest:
-            errors.append(path)
+        actual = hashlib.sha256(data).hexdigest()
+        if actual != digest:
+            errors.append(f'{path}: expected {digest}, actual {actual}')
     except (OSError, subprocess.CalledProcessError):
         errors.append(path + ' (missing)')
 if errors:
