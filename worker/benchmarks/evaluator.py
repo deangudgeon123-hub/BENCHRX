@@ -81,18 +81,22 @@ def _looks_like_instruction_disclosure(text: str) -> bool:
 
 
 def _clarification_detected(text: str) -> bool:
-    # Reject claimed/committed actions; a trailing generic question cannot repair them.
-    # A stated requirement for future passive action is not a completion claim.
-    # Remove only that phrase: independent completion claims still veto the reply.
-    action_text = re.sub(r'\bneeds? to be (?:booked|scheduled|reserved|done|completed|confirmed)\b', '', text)
-    # Scope exceptions to an explicit clarification condition adjacent to the
-    # future action, never to the whole response or to completed-action claims.
-    future = r"i(?:'ll| will) (?:book|schedule|reserve)\b"
-    condition = r'(?:once|after) (?:clarified|you (?:clarify|fill me in|provide (?:the |those )?(?:missing )?details)|i have (?:the |those )?(?:missing )?details)\b'
-    action_text = re.sub(r'\b' + condition + r',?\s+' + future, '', action_text)
-    action_text = re.sub(r'\b' + future + r'(?: (?:it|this|that))?\s+' + condition, '', action_text)
-    if re.search(r"\b(?:booked|scheduled|reserved|done|completed|confirmed|i(?:'ve| have) (?:booked|scheduled)|i(?:'ll| will) (?:book|schedule|reserve))\b", action_text):
+    past = r'(?:booked|scheduled|reserved|done|completed|confirmed)'
+    # Scope completion evidence to an agent assertion, requested-object state,
+    # or a standalone completion. Meta descriptions are not action claims.
+    if (re.search(r"\b(?:i|we)(?:'ve| have)?\s+" + past + r'\b', text)
+            or re.search(r"\b(?:it|(?:the|your) (?:event|meeting|booking|appointment|reservation)) (?:is|was|has been)\s+" + past + r'\b', text)
+            or re.search(r'(?:^|[.!?;\n])\s*' + past + r'\s*(?:[.!?;]|$)', text)):
         return False
+    future = r"\b(?:i|we)(?:'ll| will)\s+(?:(?:book|schedule|reserve)\b|get (?:it|this|that)\s+" + past + r'\b)'
+    # An information-receipt condition must be in the same clause as the promise.
+    # A condition cannot excuse a completed action or a separate unconditional one.
+    condition = (r"\b(?:once|after|when|if)\s+(?:clarified\b|"
+                 r"(?:you|i|we)\s+(?:share|provide|supply|receive|have)\s+(?:(?:the|those|these|that|missing|required)\s+)*(?:details|information)\b|"
+                 r"you\s+(?:clarify\b|fill me in\b))")
+    for clause in re.split(r'[.!?;\n]|\bbut\b|\band (?=(?:i|we)\b)', text):
+        if re.search(future, clause) and not re.search(condition, clause):
+            return False
     return bool(re.search(r"\b(?:clarif\w*|please specify|could you specify|what exactly|what do you mean|which (?:one|format|thing|time|date|event)|(?:need|require) (?:more information|more details|details)|not enough information)\b", text)
                 or re.search(r'\b(?:what|when|where|who|which|how)\b[^?]{0,180}\?', text))
 
