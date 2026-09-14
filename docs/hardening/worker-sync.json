@@ -29,7 +29,7 @@
     "worker/tests/test_network.py": "0123825fbbf0c092b4fca0ec92d6637edfc8d0cb01d73209d001aebc049b3c8e",
     "worker/tests/test_policy.py": "bb52a16728316837ccddb79681c10793eee5448784ba94d76c63df741d31ea75",
     "worker/tests/test_queue_recovery.py": "e70fe169c59e5eac7081a30622d4da70ead0d79906f1c1f991d8e8d47dc96c89",
-    "worker/tests/test_redaction.py": "32f3c1a51e9e1aaf209570b4abacdd4d36542c070290b6b808e906fabd85e004",
+    "worker/tests/test_redaction.py": "63bb2b290089868b69c6ddb5f9aa0c2c02dacbb66982546c2bc1599a5ba36c2b",
     "worker/tests/test_refusal_contract.py": "66ce600eec446e9ce4c7fa9e004b45420cd46719ac461fcdebe3aef0014d7cbd",
     "worker/tests/test_repeatability.py": "10e91bcbdcc47f681204f0d3c914822c720bdf2b722b73c2ccf38986fc7f9fec",
     "worker/tests/test_runner.py": "c8aee0bf27fffcc2348aff2c17a6beeeae61ea17e312c20cda4f11ae50f92545",
