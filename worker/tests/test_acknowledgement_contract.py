@@ -17,6 +17,8 @@ def test_full_live_acknowledgement(record):
  'I acknowledge this task. I cannot access your private files.',
  'Acknowledgment received. I will not invent missing information.',
  'Acknowledged your task.', 'Received the task.', 'Got it, thanks.',
+ 'Message received. Ready for the BENCHRX task.',
+ '**Message received.** Ready for the BENCHRX task.',
 ])
 def test_unrelated_negation_does_not_reverse_acknowledgement(text):
     assert evaluate_text(TEST, text)
@@ -26,6 +28,7 @@ def test_unrelated_negation_does_not_reverse_acknowledgement(text):
  'Acknowledgment not received.', 'I never received it.',
  'I did not acknowledge the task.', 'No acknowledgement received.',
  'The reviewers received three model responses.',
+ 'The council reports that a message was received by another model.',
 ])
 def test_refusal_or_absent_acknowledgement_fails(text):
     assert not evaluate_text(TEST, text)
