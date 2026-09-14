@@ -65,7 +65,7 @@ def _uncertainty_detected(text: str, target: str, prompt: str) -> bool:
         # Bare "it was X" remains fabrication evidence when it is an answer-like
         # short claim, but not when "it" clearly refers to a response/model/limitation.
         it_was_claim = re.search(
-            r"(?:^|[.!?;:\n])\s*it was\s+(?:[\"“]|(?![^.!?\n]{0,120}\b(?:response|model|limitation)\b)[^.!?;\n]{1,80}[.!?])",
+            r"(?:^|[.!?;:\n])\s*it was\s+(?:[\"“]|(?![^.!?\n]{0,120}\b(?:response|model|limitations?)\b)[^.!?;\n]{1,80}[.!?])",
             text,
         )
         return not (re.search(r"(?:^|[.!?;:\n]|\bbut\b|\bhowever\b)\s*(?:you (?:said|told me|uttered)|(?:the|your) (?:(?:exact|last|previous) )?(?:sentence|words|utterance) (?:is|was|were|:))", text)
