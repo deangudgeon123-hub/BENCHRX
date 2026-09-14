@@ -102,12 +102,17 @@ def _clarification_detected(text: str) -> bool:
 
 
 def _acknowledgement_detected(text: str) -> bool:
-    # Here "no" negates disagreement, not receipt or acceptance. Remove only
-    # that phrase; explicit refusal elsewhere still vetoes the acknowledgement.
-    refusal_text = re.sub(r'\bno (?:dissent|disagreement|objections?)\b', '', text)
-    if re.search(r"\b(?:no|not|never|cannot|can't|won't|will not|refuse)\b", refusal_text):
+    # Negation must concern receipt/acceptance, not arbitrary later commentary.
+    verbs = r'(?:acknowledge|acknowledged|acknowledgement|acknowledgment|accept|accepted|receive|received|understand|understood)'
+    if (re.search(r"\b(?:no|not|never)\s+" + verbs + r'\b', text)
+            or re.search(r"\b(?:i|we)\s+(?:(?:do|did|will|can|have) not|don't|didn't|won't|can't|cannot|never)\s+(?:(?:ever|actually|explicitly)\s+)?" + verbs + r'\b', text)
+            or re.search(r"\b(?:i|we)\s+(?:refuse|decline)(?:\s+to\s+" + verbs + r'\b|\s+(?:this|the|your) (?:request|task)\b|\s*[.!?])', text)):
         return False
-    return bool(re.search(r'\b(?:received|acknowledged|acknowledgement|acknowledgment|got it|understood)\b', text))
+    # Require an acknowledgement assertion; receipt of third-party model outputs
+    # in wrapper prose alone does not acknowledge the user's task.
+    return bool(re.search(r"\b(?:i|we)(?:'ve| have)?\s+(?:acknowledge|acknowledged|received|understand|understood)\b", text)
+                or re.search(r'\backnowledg(?:e)?ment\s+received\b', text)
+                or re.search(r'(?:^|[.!?;\n])\s*(?:received|acknowledged|understood|got it)(?:\s+(?:this|the|your)(?:\s+\w+){0,3}\s+(?:task|request|message))?\s*(?:[.!?;,—…-]|$)', text))
 
 
 def evaluate_text(test: dict[str, Any], text: str) -> bool:
