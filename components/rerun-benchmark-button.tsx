@@ -6,10 +6,10 @@ import { Loader2, RotateCw } from "lucide-react";
 
 type Props = {
   slug: string;
-  latestCompletedRunId: string | null;
+  latestCompletedRunId?: string | null;
 };
 
-export function RerunBenchmarkButton({ slug, latestCompletedRunId }: Props) {
+export function RerunBenchmarkButton({ slug, latestCompletedRunId = null }: Props) {
   const router = useRouter();
   const [isRunning, setIsRunning] = useState(false);
   const [message, setMessage] = useState("");
