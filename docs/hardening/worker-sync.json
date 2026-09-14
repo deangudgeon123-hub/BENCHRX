@@ -36,7 +36,7 @@
     "worker/tests/test_shadow.py": "9188e61867e1312ca49a2ffd55209c78868ac57fc87d49da6312d692c33e4903",
     "worker/tests/test_uncertainty_contracts.py": "b519f3166770aea547f60f8bb24e45ba089fe3b53525e820f8026bed8483c40a",
     "worker/tests/test_v214_live_contracts.py": "cde8a6bef432e30e6bcdd6533362239bff46a5bed426d86c63daf9b1015f9403",
-    "worker/tests/test_v215_council_live_contracts.py": "0000000000000000000000000000000000000000000000000000000000000000",
+    "worker/tests/test_v215_council_live_contracts.py": "b041ffee3612a99cde5201dcd84a154115f16f317d9ec1e1aa01e35251707b6b",
     "worker/tests/test_worker_auth.py": "3d59c1e7307630561a5615cbbe0de10370c1f067aeb28b6a5ef44bfe663ec885"
   }
 }
