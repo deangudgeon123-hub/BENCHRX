@@ -6,15 +6,23 @@ import { Loader2, RotateCw } from "lucide-react";
 
 type Props = {
   slug: string;
+  latestCompletedRunId: string | null;
 };
 
-export function RerunBenchmarkButton({ slug }: Props) {
+export function RerunBenchmarkButton({ slug, latestCompletedRunId }: Props) {
   const router = useRouter();
   const [isRunning, setIsRunning] = useState(false);
   const [message, setMessage] = useState("");
+  const [targetRunId, setTargetRunId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isRunning) return;
+
+    if (targetRunId && latestCompletedRunId === targetRunId) {
+      setIsRunning(false);
+      setMessage("Benchmark complete. Latest score is shown above.");
+      return;
+    }
 
     const timer = window.setInterval(() => {
       router.refresh();
@@ -22,18 +30,19 @@ export function RerunBenchmarkButton({ slug }: Props) {
 
     const stop = window.setTimeout(() => {
       setIsRunning(false);
-      setMessage("If the run is still processing, refresh again in a moment.");
+      setMessage("The benchmark is taking longer than expected. Refresh again in a moment if it is still processing.");
       router.refresh();
-    }, 90_000);
+    }, 10 * 60_000);
 
     return () => {
       window.clearInterval(timer);
       window.clearTimeout(stop);
     };
-  }, [isRunning, router]);
+  }, [isRunning, latestCompletedRunId, router, targetRunId]);
 
   async function handleRerun() {
     setMessage("");
+    setTargetRunId(null);
     setIsRunning(true);
 
     try {
@@ -48,10 +57,13 @@ export function RerunBenchmarkButton({ slug }: Props) {
         throw new Error(data.error || "Could not start another benchmark.");
       }
 
-      setMessage("New benchmark started. This page will keep checking for the result.");
+      const runId = typeof data?.benchmarkRun?.id === "string" ? data.benchmarkRun.id : null;
+      setTargetRunId(runId);
+      setMessage("New benchmark started. This page will keep checking until the completed result is shown.");
       router.refresh();
     } catch (error) {
       setIsRunning(false);
+      setTargetRunId(null);
       setMessage(error instanceof Error ? error.message : "Could not start another benchmark.");
     }
   }
