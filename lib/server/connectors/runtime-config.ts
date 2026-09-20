@@ -1,13 +1,20 @@
 import {publicRuntimeUrl, RuntimeConnectorError} from './runtime-common.ts';
 
-export type RuntimeConnectorType = 'a2a' | 'langgraph';
+export type RuntimeConnectorType = 'a2a' | 'langgraph' | 'openai-agents';
 export function isRuntimeConnector(type: string): type is RuntimeConnectorType {
-  return type === 'a2a' || type === 'langgraph';
+  return type === 'a2a' || type === 'langgraph' || type === 'openai-agents';
 }
 // Only non-secret, allowlisted connection configuration may be persisted in endpoints.
 export function runtimeConfig(body: Record<string, unknown>): URLSearchParams {
   const type = String(body.connectionType);
   if (!isRuntimeConnector(type)) throw new RuntimeConnectorError('invalid_config', 'validation');
+
+  if (type === 'openai-agents') {
+    const agentId = String(body.openAIAgentId ?? body.agentId ?? '').trim();
+    if (!agentId || agentId.length > 256 || /\s/.test(agentId)) throw new RuntimeConnectorError('invalid_agent_id', 'validation');
+    const streaming = body.openAIStreaming === false || String(body.streaming ?? '') === '0' ? '0' : '1';
+    return new URLSearchParams({agentId, streaming});
+  }
 
   if (type === 'langgraph') {
     const baseUrl = publicRuntimeUrl(String(body.langGraphBaseUrl ?? body.baseUrl ?? '').trim()).href;

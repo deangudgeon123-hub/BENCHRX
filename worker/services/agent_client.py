@@ -51,7 +51,7 @@ def _preview_bypass_headers(endpoint_url: str) -> dict[str, str]:
     parsed = urlparse(endpoint_url)
     origin = f"{parsed.scheme}://{parsed.netloc}".rstrip('/')
     trusted = {value.strip().rstrip('/') for value in os.getenv('BENCHRX_ADAPTER_ORIGINS','').split(',') if value.strip()}
-    if origin not in trusted or parsed.path.rstrip('/') not in {'/api/adapters/generic','/api/adapters/gradio','/api/adapters/storkie','/api/adapters/a2a','/api/adapters/langgraph'}:
+    if origin not in trusted or parsed.path.rstrip('/') not in {'/api/adapters/generic','/api/adapters/gradio','/api/adapters/storkie','/api/adapters/a2a','/api/adapters/langgraph','/api/adapters/openai-agents'}:
         return {}
 
     return {
@@ -71,7 +71,7 @@ async def send_request(
         parsed = urlparse(endpoint_url)
         trusted = {x.strip().rstrip('/') for x in os.getenv('BENCHRX_ADAPTER_ORIGINS','').split(',') if x.strip()}
         headers = _preview_bypass_headers(endpoint_url)
-        if f"{parsed.scheme}://{parsed.netloc}" in trusted and parsed.path.rstrip('/') in {'/api/adapters/generic','/api/adapters/gradio','/api/adapters/storkie','/api/adapters/a2a','/api/adapters/langgraph'}:
+        if f"{parsed.scheme}://{parsed.netloc}" in trusted and parsed.path.rstrip('/') in {'/api/adapters/generic','/api/adapters/gradio','/api/adapters/storkie','/api/adapters/a2a','/api/adapters/langgraph','/api/adapters/openai-agents'}:
             secret = os.getenv('BENCHRX_ADAPTER_SECRET','')
             if len(secret)<32: raise ValueError('Adapter service authentication is not configured')
             headers['Authorization'] = f'Bearer {secret}'

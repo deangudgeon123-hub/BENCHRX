@@ -24,7 +24,7 @@ type RecentBenchmark = {
   score: number | null;
 };
 
-type ConnectionType = "native" | "custom" | "a2a" | "langgraph" | "gradio";
+type ConnectionType = "native" | "custom" | "a2a" | "langgraph" | "openai-agents" | "gradio";
 
 function prettyCategory(value: string) {
   return value
@@ -64,7 +64,13 @@ export default function BenchmarkPage() {
     setError("");
 
     const payload =
-      connectionType === "langgraph"
+      connectionType === "openai-agents"
+        ? {
+            connectionType,
+            openAIAgentId: String(form.get("openAIAgentId") ?? "").trim(),
+            openAIStreaming: form.get("openAIStreaming") === "on",
+          }
+        : connectionType === "langgraph"
         ? {
             connectionType,
             langGraphBaseUrl: String(form.get("langGraphBaseUrl") ?? "").trim(),
@@ -88,6 +94,10 @@ export default function BenchmarkPage() {
             fixedBody: String(form.get("fixedBody") ?? "{}").trim(),
           };
 
+    if (connectionType === "openai-agents" && !("openAIAgentId" in payload && payload.openAIAgentId)) {
+      setError("Enter the OpenAI Agent ID first.");
+      return;
+    }
     if (connectionType === "langgraph" && !("langGraphBaseUrl" in payload && payload.langGraphBaseUrl)) {
       setError("Enter the LangGraph Agent Server URL first.");
       return;
@@ -145,6 +155,8 @@ export default function BenchmarkPage() {
       langGraphAssistantId: String(form.get("langGraphAssistantId") ?? ""),
       langGraphMode: String(form.get("langGraphMode") ?? "stateless"),
       langGraphStreaming: form.get("langGraphStreaming") === "on",
+      openAIAgentId: String(form.get("openAIAgentId") ?? ""),
+      openAIStreaming: form.get("openAIStreaming") === "on",
       endpointUrl: String(form.get("endpointUrl") ?? ""),
       targetUrl: String(form.get("targetUrl") ?? ""),
       requestPath: String(form.get("requestPath") ?? "message"),
@@ -287,6 +299,7 @@ export default function BenchmarkPage() {
                 ["custom", "Custom HTTP API", "Map BENCHRX onto another public JSON API shape."],
                 ["a2a", "A2A", "Discover an Agent Card and send tasks using A2A."],
                 ["langgraph", "LangGraph", "Connect to a deployed LangGraph Agent Server."],
+                ["openai-agents", "OpenAI Agents", "Connect a reusable OpenAI Agent through the current Agents runtime."],
                 ["gradio", "Hugging Face / Gradio", "Handle Gradio queue submission and result streaming."],
               ].map(([type, title, description]) => (
                 <button
@@ -432,6 +445,23 @@ export default function BenchmarkPage() {
                 <p className="mt-3 text-xs leading-5 text-[var(--muted)]">BENCHRX supports stateless and threaded runs, wait/stream completion and assistant-only extraction. Public unauthenticated Agent Servers are supported in this pass.</p>
                 <button type="button" disabled={isTestingConnection} onClick={event => {const form = event.currentTarget.closest("form"); if (form) void testConnection(form);}} className="mt-4 rounded-full border border-white/10 px-4 py-2.5 text-sm font-black disabled:opacity-60">
                   {isTestingConnection ? "Testing connection..." : "Test connection"}
+                </button>
+              </div>
+            ) : connectionType === "openai-agents" ? (
+              <div className="mt-5 rounded-2xl border border-white/8 bg-black/15 p-5">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-bold">OpenAI Agent ID</span>
+                  <input name="openAIAgentId" type="text" required placeholder="agent_..." className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3.5 font-mono text-sm text-white outline-none transition placeholder:text-white/25 focus:border-[var(--accent)]/50" />
+                </label>
+                <label className="mt-4 flex items-center gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3.5 text-sm font-bold">
+                  <input name="openAIStreaming" type="checkbox" defaultChecked />
+                  Prefer streaming execution
+                </label>
+                <p className="mt-3 text-xs leading-5 text-[var(--muted)]">
+                  Provider architecture targets the current OpenAI Agents platform, not the legacy Assistants API. Live hosted execution stays fail-closed until BENCHRX has a private per-connection credential binding.
+                </p>
+                <button type="button" disabled className="mt-4 rounded-full border border-white/10 px-4 py-2.5 text-sm font-black opacity-50">
+                  Credential setup required
                 </button>
               </div>
             ) : (
