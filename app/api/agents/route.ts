@@ -1,6 +1,6 @@
 import {isRuntimeConnector, runtimeEndpoint} from "@/lib/server/connectors/runtime-config";
 import {validateAndPinPublicHttpsUrl} from "@/lib/server/pinned-https";
-import { requireOperator, readBoundedJson, appOrigin } from "@/lib/server/access";
+import { readBoundedJson, appOrigin } from "@/lib/server/access";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -213,8 +213,6 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const denied = requireOperator(request);
-  if (denied) return denied;
   try {
     const body = (await readBoundedJson(request)) as Record<string, unknown>;
     const name = String(body.name ?? "").trim();
