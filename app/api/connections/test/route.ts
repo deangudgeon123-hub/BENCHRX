@@ -1,3 +1,4 @@
+import {isRuntimeConnector, runtimeEndpoint} from "@/lib/server/connectors/runtime-config";
 import { requireOperator, readBoundedJson, appOrigin } from "@/lib/server/access";
 import { NextResponse } from "next/server";
 
@@ -13,13 +14,8 @@ export async function POST(request: Request) {
     const origin = appOrigin();
 
     let adapter: URL;
-    if (connectionType === "a2a") {
-      const baseUrl = String(body.a2aBaseUrl ?? "").trim();
-      if (!baseUrl) {
-        return NextResponse.json({ error: "A2A agent URL is required." }, { status: 400 });
-      }
-      adapter = new URL("/api/adapters/a2a", origin);
-      adapter.searchParams.set("baseUrl", baseUrl);
+    if (isRuntimeConnector(connectionType)) {
+      adapter = runtimeEndpoint({...body, connectionType}, origin);
     } else if (connectionType === "gradio") {
       const spaceUrl = String(body.spaceUrl ?? "").trim();
       const apiName = String(body.apiName ?? "chat").trim();
@@ -94,7 +90,7 @@ export async function POST(request: Request) {
         status: response.status,
         payloadType: payload === null ? "null" : Array.isArray(payload) ? "array" : typeof payload,
       });
-      return NextResponse.json({ error: "Connection test failed." }, { status: response.status });
+      return NextResponse.json({ error: "Connection test failed.", ...(isRuntimeConnector(connectionType) && payload?.diagnostics ? {diagnostics: payload.diagnostics} : {}) }, { status: response.status });
     }
 
     return NextResponse.json({

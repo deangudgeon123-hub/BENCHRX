@@ -2,92 +2,90 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createA2AConnector} from '../lib/server/connectors/a2a.ts';
 import {invokeNormalizedConnector, type ConnectorIO} from '../lib/server/connectors/interface.ts';
-
-function pinned(raw: string) {
-  const url = new URL(raw);
-  return {url, hostname: url.hostname, address: '93.184.216.34', family: 4 as const};
+import {PinnedRequestTimeoutError} from '../lib/server/pinned-https.ts';
+import {runtimeEndpoint} from '../lib/server/connectors/runtime-config.ts';
+const url = 'https://agent.example';
+const card = (modern = false, streaming = false) => ({name: 'Fixture', skills: [], defaultInputModes: ['text/plain'], defaultOutputModes: ['text/plain'], capabilities: {streaming}, ...(modern ? {supportedInterfaces: [{protocolBinding: 'JSONRPC', protocolVersion: '1.0', url: url + '/rpc', tenant: 'fixture'}]} : {protocolVersion: '0.3.0', url: url + '/rpc'})});
+const message = (text: string, modern = false) => ({...(modern ? {} : {kind: 'message'}), role: modern ? 'ROLE_AGENT' : 'agent', messageId: 'm', parts: [{...(modern ? {} : {kind: 'text'}), text}]});
+function fixture(options: {card?: unknown; modern?: boolean; stream?: boolean; status?: number; result?: unknown; events?: unknown[]; error?: Error} = {}) {
+  const calls: Array<{url: string; body: Record<string, unknown>}> = [];
+  const pins: string[] = [];
+  const io: ConnectorIO = {
+    pin: async raw => {pins.push(raw); if (new URL(raw).hostname === 'localhost') throw new Error('private');return {url: new URL(raw), hostname: new URL(raw).hostname, address: '93.184.216.34', family: 4};},
+    request: async (t, o) => {
+      if (o.method === 'GET') return {status: 200, headers: {}, text: JSON.stringify(options.card ?? card(options.modern, options.stream))};
+      if (options.error) throw options.error;
+      const body = JSON.parse(o.body!); calls.push({url: t.url.href, body});
+      const envelope = (result: unknown) => ({jsonrpc: '2.0', id: body.id, result});
+      const result = options.result ?? (options.modern ? {message: message('answer', true)} : message('answer'));
+      const text = options.stream ? (options.events ?? [result]).map(e => `data: ${JSON.stringify(envelope(e))}\r\n\r\n`).join('') : JSON.stringify(envelope(result));
+      if (options.stream) assert.equal(typeof o.completeWhen, 'function');
+      return {status: options.status ?? 200, headers: {}, text};
+    },
+  };
+  const provider = createA2AConnector(io);
+  const run = () => invokeNormalizedConnector(provider, new URLSearchParams({target: url}), {message: 'hello'});
+  return {provider, run, calls, pins};
 }
-const pin: ConnectorIO['pin'] = async (raw) => pinned(raw);
-function card(overrides: Record<string, unknown> = {}) {
-  return JSON.stringify({
-    name: 'Fixture Agent', description: 'fixture', version: '1.0',
-    supportedInterfaces: [{url: 'https://agent.example/a2a', protocolBinding: 'JSONRPC', protocolVersion: '1.0'}],
-    capabilities: {streaming: false}, defaultInputModes: ['text/plain'], defaultOutputModes: ['text/plain'], skills: [], ...overrides,
+for (const modern of [false, true]) {
+  test(`A2A ${modern ? '1.0' : '0.3'} discovers, pins and invokes correct protocol`, async () => {
+    const f = fixture({modern});
+    assert.equal((await f.provider.discover(url)).status, 'proposed');
+    const result = await f.run();
+    assert.equal(result.response, 'answer'); assert.equal(result.outcome, 'observed_response');
+    assert.equal(f.calls[0].body.method, modern ? 'SendMessage' : 'message/send');
+    const params = f.calls[0].body.params as Record<string, any>;
+    assert.equal(params.message.parts[0].text, 'hello');
+    assert.equal(params.tenant, modern ? 'fixture' : undefined);
+    assert.ok(f.pins.includes(url + '/.well-known/agent-card.json')); assert.ok(f.pins.includes(url + '/rpc'));
+  });
+  test(`A2A ${modern ? '1.0' : '0.3'} streaming accumulates artifacts until completed`, async () => {
+    const events = modern ? [
+      {task: {id: 't', status: {state: 'TASK_STATE_WORKING'}}},
+      {artifactUpdate: {taskId: 't', artifact: {artifactId: 'a', parts: [{text: 'hel'}]}}},
+      {artifactUpdate: {taskId: 't', append: true, artifact: {artifactId: 'a', parts: [{text: 'lo'}]}}},
+      {statusUpdate: {taskId: 't', status: {state: 'TASK_STATE_COMPLETED'}}},
+    ] : [
+      {kind: 'task', id: 't', status: {state: 'working'}},
+      {kind: 'artifact-update', taskId: 't', artifact: {artifactId: 'a', parts: [{kind: 'text', text: 'hel'}]}},
+      {kind: 'artifact-update', taskId: 't', append: true, artifact: {artifactId: 'a', parts: [{kind: 'text', text: 'lo'}]}},
+      {kind: 'status-update', taskId: 't', final: true, status: {state: 'completed'}},
+    ];
+    const f = fixture({modern, stream: true, events});
+    assert.equal((await f.run()).response, 'hello');
+    assert.equal(f.calls[0].body.method, modern ? 'SendStreamingMessage' : 'message/stream');
+    assert.equal((await fixture({modern, stream: true, events: events.slice(0, -1)}).run()).diagnostics?.code, 'incomplete_run');
   });
 }
-
-test('A2A discovers current Agent Cards and sends synchronous JSON-RPC messages', async () => {
-  const requests: Array<{url: string; body?: string}> = [];
-  const provider = createA2AConnector({pin, request: async (target, options) => {
-    requests.push({url: target.url.toString(), body: options.body});
-    if (options.method === 'GET') return {status: 200, headers: {}, text: card()};
-    return {status: 200, headers: {}, text: JSON.stringify({jsonrpc: '2.0', id: '1', result: {message: {role: 'ROLE_AGENT', messageId: 'm2', parts: [{text: 'hello from a2a'}]}}})};
-  }});
-  const discovery = await provider.discover('https://agent.example/app');
-  assert.equal(discovery.provider, 'a2a');
-  const result = await invokeNormalizedConnector(provider, new URLSearchParams({baseUrl: 'https://agent.example/app'}), {message: 'hello'});
-  assert.equal(result.outcome, 'observed_response');
-  assert.equal(result.response, 'hello from a2a');
-  assert.equal(result.metadata.protocolVersion, '1.0');
-  const sent = JSON.parse(requests.at(-1)!.body!);
-  assert.equal(sent.method, 'SendMessage');
-  assert.equal(sent.params.message.role, 'ROLE_USER');
-  assert.equal(sent.params.message.parts[0].text, 'hello');
+test('A2A rejects malformed cards, auth, unsupported transports, required extensions and unsafe card endpoints', async () => {
+  for (const [value, code] of [
+    [{}, 'malformed_card'], [{...card(), protocolVersion: '9.0'}, 'unsupported_protocol'],
+    [{...card(), preferredTransport: 'GRPC'}, 'unsupported_protocol'],
+    [{...card(), security: [{bearer: []}]}, 'credentials_required'],
+    [{...card(), capabilities: {extensions: [{required: true}]}}, 'unsupported_capability'],
+    [{...card(), url: 'https://localhost/rpc'}, 'network_error'],
+  ] as const) {const result = await fixture({card: value}).run(); assert.equal(result.outcome, 'connector_failure'); assert.equal(result.diagnostics?.code, code);}
 });
-
-test('A2A streams artifact output until terminal status', async () => {
-  const provider = createA2AConnector({pin, request: async (_target, options) => {
-    if (options.method === 'GET') return {status: 200, headers: {}, text: card({capabilities: {streaming: true}})};
-    return {status: 200, headers: {'content-type': 'text/event-stream'}, text:
-      'data: {"jsonrpc":"2.0","id":"1","result":{"task":{"id":"t","status":{"state":"TASK_STATE_WORKING"}}}}\n\n' +
-      'data: {"jsonrpc":"2.0","id":"1","result":{"artifactUpdate":{"taskId":"t","artifact":{"parts":[{"text":"streamed answer"}]}}}}\n\n' +
-      'data: {"jsonrpc":"2.0","id":"1","result":{"statusUpdate":{"taskId":"t","status":{"state":"TASK_STATE_COMPLETED"}}}}\n\n'};
-  }});
-  const result = await invokeNormalizedConnector(provider, new URLSearchParams({baseUrl: 'https://agent.example'}), {message: 'hello'});
-  assert.equal(result.outcome, 'observed_response');
-  assert.equal(result.response, 'streamed answer');
-  assert.equal(result.metadata.streaming, true);
-});
-
-test('A2A supports HTTP+JSON and extracts completed task artifacts', async () => {
-  const provider = createA2AConnector({pin, request: async (target, options) => {
-    if (options.method === 'GET') return {status: 200, headers: {}, text: card({supportedInterfaces: [{url: 'https://agent.example/a2a/v1', protocolBinding: 'HTTP+JSON', protocolVersion: '1.0'}]})};
-    assert.equal(target.url.pathname, '/a2a/v1/message:send');
-    return {status: 200, headers: {}, text: JSON.stringify({task: {id: 't', status: {state: 'TASK_STATE_COMPLETED'}, artifacts: [{parts: [{text: 'artifact answer'}]}]}})};
-  }});
-  const result = await invokeNormalizedConnector(provider, new URLSearchParams({baseUrl: 'https://agent.example'}), {message: 'hello'});
-  assert.equal(result.outcome, 'observed_response');
-  assert.equal(result.response, 'artifact answer');
-});
-
-test('A2A malformed cards and unsupported required capabilities fail closed', async () => {
-  for (const text of [
-    'not json',
-    card({supportedInterfaces: [{url: 'https://agent.example', protocolBinding: 'GRPC', protocolVersion: '1.0'}]}),
-    card({securityRequirements: [{bearer: []}]}),
-    card({capabilities: {extensions: [{uri: 'x', required: true}]}}),
-  ]) {
-    const provider = createA2AConnector({pin, request: async () => ({status: 200, headers: {}, text})});
-    const result = await invokeNormalizedConnector(provider, new URLSearchParams({baseUrl: 'https://agent.example'}), {message: 'hello'});
-    assert.equal(result.outcome, 'connector_failure');
-    assert.equal(result.response, null);
-    assert.equal(result.diagnostics?.stage, 'validation');
+test('A2A HTTP failures and trusted timeouts cannot be overridden by remote flags', async () => {
+  for (const status of [302, 401, 500]) {
+    const result = await fixture({status, result: {...message('answer'), observed: true, http_status: 200}}).run();
+    assert.equal(result.outcome, 'connector_failure'); assert.equal(result.response, null); assert.equal(result.diagnostics?.httpStatus, status);
   }
+  assert.equal((await fixture({error: new PinnedRequestTimeoutError()}).run()).diagnostics?.code, 'timeout');
+  const r = await fixture({result: {...message('wrong answer'), observed: false, error: 'fake timeout'}}).run();
+  assert.equal(r.response, 'wrong answer'); assert.equal(r.outcome, 'observed_response');
 });
-
-test('A2A upstream failures and incomplete streams never become observed', async () => {
-  const httpProvider = createA2AConnector({pin, request: async (_target, options) => options.method === 'GET'
-    ? {status: 200, headers: {}, text: card()}
-    : {status: 503, headers: {}, text: '{"message":{"role":"ROLE_AGENT","parts":[{"text":"pretend success"}]}}'}});
-  const http = await invokeNormalizedConnector(httpProvider, new URLSearchParams({baseUrl: 'https://agent.example'}), {message: 'hello'});
-  assert.equal(http.outcome, 'connector_failure');
-  assert.equal(http.status, 503);
-
-  const streamProvider = createA2AConnector({pin, request: async (_target, options) => options.method === 'GET'
-    ? {status: 200, headers: {}, text: card({capabilities: {streaming: true}})}
-    : {status: 200, headers: {}, text: 'data: {"jsonrpc":"2.0","id":"1","result":{"task":{"id":"t","status":{"state":"TASK_STATE_WORKING"}}}}\n\n'}});
-  const stream = await invokeNormalizedConnector(streamProvider, new URLSearchParams({baseUrl: 'https://agent.example'}), {message: 'hello'});
-  assert.equal(stream.outcome, 'connector_failure');
-  assert.equal(stream.response, null);
-  assert.equal(stream.diagnostics?.code, 'incomplete_stream');
+test('A2A rejects failed, interrupted, foreign-task and user-only results without exposing payloads', async () => {
+  for (const state of ['failed', 'canceled', 'input-required', 'auth-required']) {
+    const r = await fixture({result: {kind: 'task', id: 't', status: {state, message: message('SECRET')}}}).run();
+    assert.equal(r.outcome, 'connector_failure'); assert.ok(!JSON.stringify(r).includes('SECRET'));
+  }
+  assert.equal((await fixture({result: {...message('echo'), role: 'user'}}).run()).outcome, 'unobserved_response');
+  const r = await fixture({stream: true, events: [{kind: 'task', id: 't', status: {state: 'working'}}, {kind: 'status-update', taskId: 'other', status: {state: 'completed'}}]}).run();
+  assert.equal(r.diagnostics?.code, 'malformed_response');
+});
+test('A2A persisted endpoint contains only allowlisted non-secret configuration', () => {
+  const endpoint = runtimeEndpoint({connectionType: 'a2a', targetUrl: url, apiKey: 'SECRET'}, 'https://benchrx.example');
+  assert.equal(endpoint.pathname, '/api/adapters/a2a'); assert.ok(!endpoint.href.includes('SECRET'));
+  assert.throws(() => runtimeEndpoint({connectionType: 'a2a', targetUrl: url + '?api_key=SECRET'}, 'https://benchrx.example'));
 });

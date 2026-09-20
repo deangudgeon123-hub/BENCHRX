@@ -2,9 +2,8 @@ import {requireAdapter, readBoundedJson, adapterConfig} from "@/lib/server/acces
 import {invokeConnector} from "@/lib/server/connectors/interface";
 import {a2aConnector} from "@/lib/server/connectors/a2a";
 import {NextResponse} from "next/server";
-
+export const maxDuration = 65;
 export const runtime = "nodejs";
-export const maxDuration = 90;
 
 export async function POST(request: Request) {
   const denied = requireAdapter(request);
@@ -14,7 +13,8 @@ export async function POST(request: Request) {
     const reply = await invokeConnector(a2aConnector, adapterConfig(incoming), incoming);
     return NextResponse.json(reply.body, {status: reply.status});
   } catch {
-    console.error("A2A connector execution failed");
+    // Never log endpoint URLs, credentials, raw output, or remote exception strings.
+    console.error("Connector execution failed");
     return NextResponse.json({error: "Connector execution failed"}, {status: 502});
   }
 }
