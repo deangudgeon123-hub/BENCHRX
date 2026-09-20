@@ -1,13 +1,11 @@
 import {isRuntimeConnector, runtimeEndpoint} from "@/lib/server/connectors/runtime-config";
-import { requireOperator, readBoundedJson, appOrigin } from "@/lib/server/access";
+import { readBoundedJson, appOrigin } from "@/lib/server/access";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const maxDuration = 150;
 
 export async function POST(request: Request) {
-  const denied = requireOperator(request);
-  if (denied) return denied;
   try {
     const body = await readBoundedJson(request);
     const connectionType = String(body.connectionType ?? "custom").trim().toLowerCase();
