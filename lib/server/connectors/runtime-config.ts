@@ -11,7 +11,7 @@ export function runtimeConfig(body: Record<string, unknown>): URLSearchParams {
 
   if (type === 'openai-agents') {
     const agentId = String(body.openAIAgentId ?? body.agentId ?? '').trim();
-    if (!agentId || agentId.length > 256 || /\s/.test(agentId)) throw new RuntimeConnectorError('invalid_agent_id', 'validation');
+    if (!agentId || agentId.length > 256 || /\s/.test(agentId)) throw new RuntimeConnectorError('invalid_config', 'validation');
     const streaming = body.openAIStreaming === false || String(body.streaming ?? '') === '0' ? '0' : '1';
     return new URLSearchParams({agentId, streaming});
   }
