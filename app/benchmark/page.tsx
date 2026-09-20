@@ -24,7 +24,7 @@ type RecentBenchmark = {
   score: number | null;
 };
 
-type ConnectionType = "native" | "custom" | "gradio" | "a2a";
+type ConnectionType = "native" | "custom" | "a2a" | "langgraph" | "gradio";
 
 function prettyCategory(value: string) {
   return value
@@ -64,7 +64,15 @@ export default function BenchmarkPage() {
     setError("");
 
     const payload =
-      connectionType === "a2a" ? {connectionType, targetUrl: String(form.get("targetUrl") ?? "").trim(), mode: String(form.get("mode") ?? "auto")} : connectionType === "gradio"
+      connectionType === "langgraph"
+        ? {
+            connectionType,
+            langGraphBaseUrl: String(form.get("langGraphBaseUrl") ?? "").trim(),
+            langGraphAssistantId: String(form.get("langGraphAssistantId") ?? "").trim(),
+            langGraphMode: String(form.get("langGraphMode") ?? "stateless"),
+            langGraphStreaming: form.get("langGraphStreaming") === "on",
+          }
+        : connectionType === "a2a" ? {connectionType, targetUrl: String(form.get("targetUrl") ?? "").trim(), mode: String(form.get("mode") ?? "auto")} : connectionType === "gradio"
         ? {
             connectionType: "gradio",
             spaceUrl: String(form.get("spaceUrl") ?? "").trim(),
@@ -80,7 +88,15 @@ export default function BenchmarkPage() {
             fixedBody: String(form.get("fixedBody") ?? "{}").trim(),
           };
 
-    if (connectionType === "gradio" && !payload.spaceUrl) {
+    if (connectionType === "langgraph" && !("langGraphBaseUrl" in payload && payload.langGraphBaseUrl)) {
+      setError("Enter the LangGraph Agent Server URL first.");
+      return;
+    }
+    if (connectionType === "a2a" && !("targetUrl" in payload && payload.targetUrl)) {
+      setError("Enter the A2A agent URL first.");
+      return;
+    }
+    if (connectionType === "gradio" && !("spaceUrl" in payload && payload.spaceUrl)) {
       setError("Enter the Gradio Space URL first.");
       return;
     }
@@ -125,6 +141,10 @@ export default function BenchmarkPage() {
       description: String(form.get("description") ?? ""),
       connectionType,
       mode: String(form.get("mode") ?? "auto"),
+      langGraphBaseUrl: String(form.get("langGraphBaseUrl") ?? ""),
+      langGraphAssistantId: String(form.get("langGraphAssistantId") ?? ""),
+      langGraphMode: String(form.get("langGraphMode") ?? "stateless"),
+      langGraphStreaming: form.get("langGraphStreaming") === "on",
       endpointUrl: String(form.get("endpointUrl") ?? ""),
       targetUrl: String(form.get("targetUrl") ?? ""),
       requestPath: String(form.get("requestPath") ?? "message"),
@@ -261,11 +281,12 @@ export default function BenchmarkPage() {
           <div className="p-6 sm:p-8">
             <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--accent)]">Connection</p>
 
-            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {[
                 ["native", "BENCHRX endpoint", "Sends a message field and reads a response field."],
                 ["custom", "Custom HTTP API", "Map BENCHRX onto another public JSON API shape."],
                 ["a2a", "A2A", "Discover an Agent Card and send tasks using A2A."],
+                ["langgraph", "LangGraph", "Connect to a deployed LangGraph Agent Server."],
                 ["gradio", "Hugging Face / Gradio", "Handle Gradio queue submission and result streaming."],
               ].map(([type, title, description]) => (
                 <button
@@ -381,6 +402,34 @@ export default function BenchmarkPage() {
                   </select>
                 </label>
                 <p className="mt-3 text-xs leading-5 text-[var(--muted)]">Agent Card discovery is automatic. Supports public A2A 0.3 and 1.0 JSON-RPC/HTTP+JSON agents. Authentication and required extensions are not supported yet.</p>
+                <button type="button" disabled={isTestingConnection} onClick={event => {const form = event.currentTarget.closest("form"); if (form) void testConnection(form);}} className="mt-4 rounded-full border border-white/10 px-4 py-2.5 text-sm font-black disabled:opacity-60">
+                  {isTestingConnection ? "Testing connection..." : "Test connection"}
+                </button>
+              </div>
+            ) : connectionType === "langgraph" ? (
+              <div className="mt-5 rounded-2xl border border-white/8 bg-black/15 p-5">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-bold">LangGraph Agent Server URL</span>
+                  <input name="langGraphBaseUrl" type="url" required placeholder="https://your-agent-server.example.com" className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3.5 text-white outline-none transition placeholder:text-white/25 focus:border-[var(--accent)]/50" />
+                </label>
+                <label className="mt-4 block">
+                  <span className="mb-2 block text-sm font-bold">Assistant / agent ID <span className="font-normal text-[var(--muted)]">(optional)</span></span>
+                  <input name="langGraphAssistantId" type="text" placeholder="Auto-discover when exactly one exists" className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3.5 font-mono text-sm text-white outline-none transition placeholder:text-white/25 focus:border-[var(--accent)]/50" />
+                </label>
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-bold">Execution</span>
+                    <select name="langGraphMode" defaultValue="stateless" className="w-full rounded-2xl border border-white/10 bg-[#0b0e12] px-4 py-3.5 text-white">
+                      <option value="stateless">Stateless run</option>
+                      <option value="threaded">New thread per BENCHRX call</option>
+                    </select>
+                  </label>
+                  <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3.5 text-sm font-bold">
+                    <input name="langGraphStreaming" type="checkbox" defaultChecked />
+                    Use streaming
+                  </label>
+                </div>
+                <p className="mt-3 text-xs leading-5 text-[var(--muted)]">BENCHRX supports stateless and threaded runs, wait/stream completion and assistant-only extraction. Public unauthenticated Agent Servers are supported in this pass.</p>
                 <button type="button" disabled={isTestingConnection} onClick={event => {const form = event.currentTarget.closest("form"); if (form) void testConnection(form);}} className="mt-4 rounded-full border border-white/10 px-4 py-2.5 text-sm font-black disabled:opacity-60">
                   {isTestingConnection ? "Testing connection..." : "Test connection"}
                 </button>
