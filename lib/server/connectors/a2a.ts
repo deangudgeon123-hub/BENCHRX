@@ -201,8 +201,14 @@ export function createA2AConnector(io: ConnectorIO = publicConnectorIO): Connect
       });
       if (streaming) {
         const events = parseSse(response.text);
-        const info = events.reduce((acc, event) => { const next = terminalInfo(event); return {terminal: acc.terminal || next.terminal, failed: acc.failed || next.failed}; }, {terminal: false, failed: false});
-        return {status: response.status, payload: response.text, streaming: true, terminal: info.terminal, failedState: info.failed, protocolError: events.some(protocolError)};
+        let terminal = false;
+        let failed = false;
+        for (const event of events) {
+          const info = terminalInfo(event);
+          terminal ||= info.terminal;
+          failed ||= info.failed;
+        }
+        return {status: response.status, payload: response.text, streaming: true, terminal, failedState: failed, protocolError: events.some(protocolError)};
       }
       let payload: unknown = null;
       try { payload = response.text ? JSON.parse(response.text) : null; } catch {}
