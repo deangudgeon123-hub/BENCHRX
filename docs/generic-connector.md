@@ -36,3 +36,15 @@ Example ChatInterface-style configuration:
 - Output index: `0`
 
 Public unauthenticated Spaces only in this first version. Private/local destinations remain blocked. Hugging Face authentication and ZeroGPU quota handling are not included yet.
+
+## Custom HTTP JSON: future gaps
+
+The current Generic HTTP connector intentionally remains a small synchronous JSON adapter: one HTTPS POST, a configurable request JSON path, fixed request JSON, and a configurable string response path. The following are useful future compatibility improvements, not requirements for the A2A, LangGraph, or OpenAI Agents connectors added in this pass:
+
+- **Custom authorization and headers.** Allow explicitly configured headers for APIs that require bearer tokens, API keys, tenant headers, version headers, or non-default content negotiation. Credentials must use a private server-side secret mechanism and must never be placed in endpoint URLs, query parameters, logs, public database fields, or client-visible responses.
+- **cURL import.** Parse a pasted cURL request into the existing target, method/header, fixed-body, and JSON-path configuration so users do not have to translate API examples manually. Imported credentials must be detected and moved to the same private secret mechanism rather than persisted in public connector configuration.
+- **SSE responses.** Support generic Server-Sent Events with explicit terminal/completion rules, bounded retained data, timeout handling, and assistant-output extraction. Remote event/body content must not be allowed to set trusted transport or observation status.
+- **Async start / poll / result workflows.** Support APIs that return a run/job identifier and require subsequent status polling or result retrieval. This should use bounded polling, explicit terminal states, timeout/failure diagnostics, and final assistant-authored result extraction.
+- **Additional HTTP shapes where justified.** The current adapter is POST + JSON + string response-path only. Configurable methods or non-JSON response handling can be added later when real integrations demonstrate the need, without weakening the existing HTTPS/public-network protections.
+
+No Generic HTTP behavior is changed by this review. Existing SSRF/public-network protections, redirect blocking, response-size limits, timeouts, JSON-path validation, and trusted observation rules remain the baseline for any future expansion.
