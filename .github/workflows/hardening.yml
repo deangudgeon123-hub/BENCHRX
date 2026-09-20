@@ -2,7 +2,7 @@ name: Hardening regression checks
 on:
   pull_request:
   push:
-    branches: [feature/security-measurement-hardening, feature/gradio-workflows]
+    branches: [main, feature/security-measurement-hardening, feature/gradio-workflows]
 permissions:
   contents: read
 jobs:
