@@ -9,7 +9,11 @@ type A2AConnection = {target: ValidatedHttpsTarget; binding: A2ABinding; protoco
 type A2AResult = {status: number; payload: unknown; streaming: boolean; terminal: boolean; protocolError: boolean; failedState: boolean};
 
 class A2AConfigError extends Error {
-  constructor(readonly code: string, message: string) { super(message); }
+  readonly code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+  }
 }
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
