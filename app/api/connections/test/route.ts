@@ -13,7 +13,14 @@ export async function POST(request: Request) {
     const origin = appOrigin();
 
     let adapter: URL;
-    if (connectionType === "gradio") {
+    if (connectionType === "a2a") {
+      const baseUrl = String(body.a2aBaseUrl ?? "").trim();
+      if (!baseUrl) {
+        return NextResponse.json({ error: "A2A agent URL is required." }, { status: 400 });
+      }
+      adapter = new URL("/api/adapters/a2a", origin);
+      adapter.searchParams.set("baseUrl", baseUrl);
+    } else if (connectionType === "gradio") {
       const spaceUrl = String(body.spaceUrl ?? "").trim();
       const apiName = String(body.apiName ?? "chat").trim();
       const gradioInputs = String(body.gradioInputs ?? "[]").trim() || "[]";

@@ -92,6 +92,19 @@ function buildCustomEndpoint(request: Request, body: Record<string, unknown>) {
   return endpoint.toString();
 }
 
+function buildA2AEndpoint(body: Record<string, unknown>) {
+  const baseUrl = String(body.a2aBaseUrl ?? "").trim();
+  if (!baseUrl) throw new Error("A2A agent URL is required.");
+
+  let parsed: URL;
+  try { parsed = new URL(baseUrl); } catch { throw new Error("Enter a valid A2A agent URL."); }
+  if (parsed.protocol !== "https:") throw new Error("A2A endpoints must use HTTPS.");
+
+  const endpoint = new URL("/api/adapters/a2a", appOrigin());
+  endpoint.searchParams.set("baseUrl", parsed.toString());
+  return endpoint.toString();
+}
+
 function validateGradioInputs(gradioInputs: string) {
   let parsed: unknown;
   try {
@@ -222,7 +235,16 @@ export async function POST(request: Request) {
     const connectionType = String(body.connectionType ?? "native").trim().toLowerCase();
 
     let endpointUrl = String(body.endpointUrl ?? "").trim();
-    if (connectionType === "custom") {
+    if (connectionType === "a2a") {
+      try {
+        endpointUrl = buildA2AEndpoint(body);
+      } catch (error) {
+        return NextResponse.json(
+          { error: error instanceof Error ? error.message : "Invalid A2A connection." },
+          { status: 400 }
+        );
+      }
+    } else if (connectionType === "custom") {
       try {
         endpointUrl = buildCustomEndpoint(request, body);
       } catch (error) {

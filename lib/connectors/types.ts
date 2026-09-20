@@ -1,5 +1,5 @@
 // Serializable discovery output only; never carries service credentials or raw diagnostics.
-export type ProviderId = 'generic' | 'gradio';
+export type ProviderId = 'generic' | 'gradio' | 'a2a';
 export type ConnectorRecipe = {
   label: string; provider: ProviderId; config: Record<string, string>;
   kind?: 'executable' | 'template';

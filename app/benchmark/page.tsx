@@ -24,7 +24,7 @@ type RecentBenchmark = {
   score: number | null;
 };
 
-type ConnectionType = "native" | "custom" | "gradio";
+type ConnectionType = "native" | "custom" | "a2a" | "gradio";
 
 function prettyCategory(value: string) {
   return value
@@ -64,7 +64,12 @@ export default function BenchmarkPage() {
     setError("");
 
     const payload =
-      connectionType === "gradio"
+      connectionType === "a2a"
+        ? {
+            connectionType: "a2a",
+            a2aBaseUrl: String(form.get("a2aBaseUrl") ?? "").trim(),
+          }
+        : connectionType === "gradio"
         ? {
             connectionType: "gradio",
             spaceUrl: String(form.get("spaceUrl") ?? "").trim(),
@@ -80,7 +85,11 @@ export default function BenchmarkPage() {
             fixedBody: String(form.get("fixedBody") ?? "{}").trim(),
           };
 
-    if (connectionType === "gradio" && !payload.spaceUrl) {
+    if (connectionType === "a2a" && !("a2aBaseUrl" in payload && payload.a2aBaseUrl)) {
+      setError("Enter the A2A agent URL first.");
+      return;
+    }
+    if (connectionType === "gradio" && !("spaceUrl" in payload && payload.spaceUrl)) {
       setError("Enter the Gradio Space URL first.");
       return;
     }
@@ -129,6 +138,7 @@ export default function BenchmarkPage() {
       requestPath: String(form.get("requestPath") ?? "message"),
       responsePath: String(form.get("responsePath") ?? "response"),
       fixedBody: String(form.get("fixedBody") ?? "{}"),
+      a2aBaseUrl: String(form.get("a2aBaseUrl") ?? ""),
       spaceUrl: String(form.get("spaceUrl") ?? ""),
       apiName: String(form.get("apiName") ?? "chat"),
       gradioInputs: String(form.get("gradioInputs") ?? '["{{message}}"]'),
@@ -260,10 +270,11 @@ export default function BenchmarkPage() {
           <div className="p-6 sm:p-8">
             <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--accent)]">Connection</p>
 
-            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {[
                 ["native", "BENCHRX endpoint", "Sends a message field and reads a response field."],
                 ["custom", "Custom HTTP API", "Map BENCHRX onto another public JSON API shape."],
+                ["a2a", "A2A", "Discover a standards-based Agent Card and connect automatically."],
                 ["gradio", "Hugging Face / Gradio", "Handle Gradio queue submission and result streaming."],
               ].map(([type, title, description]) => (
                 <button
@@ -355,6 +366,37 @@ export default function BenchmarkPage() {
                   Dot paths and array indexes are supported. Public unauthenticated JSON endpoints only in this first connector version. Private/local addresses and redirects are blocked.
                 </p>
 
+                <button
+                  type="button"
+                  disabled={isTestingConnection}
+                  onClick={(event) => {
+                    const form = event.currentTarget.closest("form");
+                    if (form) void testConnection(form);
+                  }}
+                  className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-black text-white transition hover:border-white/20 disabled:opacity-60"
+                >
+                  {isTestingConnection ? <Loader2 size={16} className="animate-spin" /> : <PlugZap size={16} />}
+                  {isTestingConnection ? "Testing connection..." : "Test connection"}
+                </button>
+              </div>
+            ) : connectionType === "a2a" ? (
+              <div className="mt-5 rounded-2xl border border-white/8 bg-black/15 p-5">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-bold">A2A agent URL</span>
+                  <input
+                    name="a2aBaseUrl"
+                    type="url"
+                    required
+                    placeholder="https://agent.example.com"
+                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3.5 text-white outline-none transition placeholder:text-white/25 focus:border-[var(--accent)]/50"
+                  />
+                  <span className="mt-2 block text-xs leading-5 text-[var(--muted)]">
+                    BENCHRX discovers <span className="font-mono text-white/70">/.well-known/agent-card.json</span>, selects a supported A2A interface and uses streaming when declared.
+                  </span>
+                </label>
+                <p className="mt-3 text-xs leading-5 text-[var(--muted)]">
+                  Public unauthenticated A2A 1.0 and compatible 0.3 JSON/HTTP interfaces are supported. Required authentication or required extensions fail closed.
+                </p>
                 <button
                   type="button"
                   disabled={isTestingConnection}
