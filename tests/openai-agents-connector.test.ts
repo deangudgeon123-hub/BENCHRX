@@ -53,3 +53,16 @@ test('OpenAI Agents default runtime fails closed until private credentials exist
   assert.equal(result.response, null);
   assert.equal(result.diagnostics?.code, 'credential_storage_required');
 });
+
+
+test('OpenAI Agents compatibility: tool-using completion returns only final assistant text', async () => {
+  const runtime: OpenAIAgentsRuntime = {
+    async validateAgent() {},
+    async start() {
+      return {status: 'completed', assistantText: 'final answer after tool', toolCalls: 2};
+    },
+  };
+  const result = await invokeNormalizedConnector(createOpenAIAgentsConnector(runtime), new URLSearchParams({agentId: 'agent_tool_fixture'}), {message: 'use your tool'});
+  assert.equal(result.outcome, 'observed_response');
+  assert.equal(result.response, 'final answer after tool');
+});

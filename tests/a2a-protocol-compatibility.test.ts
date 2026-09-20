@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createA2AConnector} from '../lib/server/connectors/a2a.ts';
+import {PinnedRequestTimeoutError} from '../lib/server/pinned-https.ts';
 import {invokeNormalizedConnector, type ConnectorIO} from '../lib/server/connectors/interface.ts';
 
 function pinned(raw: string) {
@@ -90,4 +91,16 @@ test('A2A upstream failures and incomplete streams never become observed', async
   assert.equal(stream.outcome, 'connector_failure');
   assert.equal(stream.response, null);
   assert.equal(stream.outcome, 'connector_failure');
+});
+
+
+test('A2A compatibility: local timeout remains a trusted connector failure', async () => {
+  const provider = createA2AConnector({pin, request: async (_target, options) => {
+    if (options.method === 'GET') return {status: 200, headers: {}, text: card()};
+    throw new PinnedRequestTimeoutError();
+  }});
+  const result = await invokeNormalizedConnector(provider, new URLSearchParams({baseUrl: 'https://agent.example'}), {message: 'hello'});
+  assert.equal(result.outcome, 'connector_failure');
+  assert.equal(result.response, null);
+  assert.equal(result.diagnostics?.code, 'timeout');
 });
