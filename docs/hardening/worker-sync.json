@@ -20,7 +20,7 @@
     "worker/services/execution_guard.py": "1f2b1081e3beb5a829a9eaaac91041f583fe12d75d0c23075d4e77740d299f19",
     "worker/services/public_network.py": "fd4e076ac48a68bdb9bbb85d330d5e489e71103b7a202952544362262b0f89d4",
     "worker/services/redaction.py": "3460cd7165b7073251de74aab29f1d915c0ed600f48cb128ea8b4630c195e811",
-    "worker/services/supabase.py": "b9ead11189648be93e5314400bfffb57daa69327723155b88cf6204746d28c92",
+    "worker/services/supabase.py": "88f09280f9cfc521816f05412e1d76bc60aeccf4ff851e20685bdfe33598dc2b",
     "worker/services/worker_auth.py": "a6621de2730e58fc0403e77001d4d741bf21a779c22e49fe4406e34d2307521a",
     "worker/tests/test_acknowledgement_contract.py": "4e6f858bf3de00a1b1674188c0f63d8ca9d830e7f34f1ed2f2a83efaf617d6e6",
     "worker/tests/test_clarification_contracts.py": "1d0c95582983a6ff202b6247cb2176a3136cb7ce2895904e07e03cf7392c9c2e",
@@ -38,6 +38,7 @@
     "worker/tests/test_uncertainty_contracts.py": "b519f3166770aea547f60f8bb24e45ba089fe3b53525e820f8026bed8483c40a",
     "worker/tests/test_v214_live_contracts.py": "cde8a6bef432e30e6bcdd6533362239bff46a5bed426d86c63daf9b1015f9403",
     "worker/tests/test_v215_council_live_contracts.py": "b041ffee3612a99cde5201dcd84a154115f16f317d9ec1e1aa01e35251707b6b",
-    "worker/tests/test_worker_auth.py": "3d59c1e7307630561a5615cbbe0de10370c1f067aeb28b6a5ef44bfe663ec885"
+    "worker/tests/test_worker_auth.py": "3d59c1e7307630561a5615cbbe0de10370c1f067aeb28b6a5ef44bfe663ec885",
+    "worker/tests/test_supabase_client.py": "66267fc4d00dd3def1299b4782a3dfeca9ac20b96cd69585ae9585928c96a7fa"
   }
 }

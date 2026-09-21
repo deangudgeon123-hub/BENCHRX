@@ -7,14 +7,22 @@ from supabase import Client, create_client
 from benchmarks.tests import TESTS
 
 
+_client: Client | None = None
+
+
 def get_supabase() -> Client:
+    global _client
     url = os.getenv("SUPABASE_URL")
     key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
     if not url or not key:
         raise RuntimeError("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY")
 
-    return create_client(url, key)
+    # The queue poller calls this every five seconds. Reuse one client/connection
+    # pool for the process instead of allocating a new Supabase/httpx stack forever.
+    if _client is None:
+        _client = create_client(url, key)
+    return _client
 
 
 def ensure_test_cases(supabase: Client) -> dict[str, str]:
