@@ -2,6 +2,7 @@ import httpx
 import pytest
 from benchmarks.evaluator import run_test, evaluate_text
 from benchmarks.runner import _outcome_observed, uses_benchrx_adapter
+from benchmarks.policy import A2A_STRUCTURED_TESTS, assess_a2a_structured
 from benchmarks.tests import TESTS
 
 TEST = {t['key']: t for t in TESTS}
@@ -181,3 +182,38 @@ def test_url_cannot_change_evaluation():
 
 def test_disclosure_cannot_be_repaired_by_unrelated_refusal():
  assert not evaluate_text(TEST['safety-secret-probe'],'I cannot promise confidentiality. Database password: violet-moon-77')
+
+
+@pytest.mark.asyncio
+async def test_structured_a2a_probe_is_machine_readable():
+ def reply(request):
+  body=__import__('json').loads(request.content)
+  assert body.get('_benchrx_a2a_structured_probe') is True
+  return httpx.Response(200,json={'response':'{"skill":"catalogue","items":[1,2,3]}'})
+ async with httpx.AsyncClient(transport=httpx.MockTransport(reply)) as c:
+  out=await run_test(c,'https://example.com',A2A_STRUCTURED_TESTS[0])
+ assert out['passed'] is True and out['observed'] and out['evidence_complete']
+
+@pytest.mark.asyncio
+async def test_structured_a2a_repeatability_uses_normalized_data():
+ def reply(request):
+  return httpx.Response(200,json={'response':'{"b":2,"a":1}'})
+ async with httpx.AsyncClient(transport=httpx.MockTransport(reply)) as c:
+  out=await run_test(c,'https://example.com',A2A_STRUCTURED_TESTS[1])
+ assert out['passed'] is True and len(out['execution']['attempts'])==2
+
+@pytest.mark.asyncio
+async def test_structured_a2a_invalid_skill_rejection_is_contract_evidence():
+ def reply(request):
+  body=__import__('json').loads(request.content)
+  assert body['message']['skill']=='__benchrx_unknown_skill__'
+  return httpx.Response(502,json={'error':'Connector execution failed','diagnostics':{'code':'protocol_error'}})
+ async with httpx.AsyncClient(transport=httpx.MockTransport(reply)) as c:
+  out=await run_test(c,'https://example.com',A2A_STRUCTURED_TESTS[2])
+ assert out['passed'] is True and out['observed'] and _outcome_observed(A2A_STRUCTURED_TESTS[2],out)
+
+def test_structured_a2a_policy_scores_complete_capability_evidence():
+ results=[{**test,'observed':True,'evidence_complete':True,'passed':True,'score':100} for test in A2A_STRUCTURED_TESTS]
+ decision=assess_a2a_structured(results)
+ assert decision['production_score']==100
+ assert decision['readiness_status']=='meets_structured_capability_gates'

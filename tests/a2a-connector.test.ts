@@ -131,3 +131,42 @@ test('A2A accepts explicit structured data input for legacy data-part agents', a
   assert.equal(params.message.parts[0].kind, 'data');
   assert.deepEqual(params.message.parts[0].data, {skill: 'lookup', query: 'hello'});
 });
+
+
+test('A2A profile probe identifies JSON-only skill agents without invoking a skill', async () => {
+  const dataCard = {
+    ...card(true, false),
+    defaultInputModes: ['application/json', 'text/plain'],
+    defaultOutputModes: ['application/json', 'text/plain'],
+    skills: [{id: 'obs_catalogue', name: 'List catalogue', description: 'Reference catalogue', inputModes: ['application/json'], outputModes: ['application/json']}],
+  };
+  const f = fixture({modern: true, card: dataCard});
+  const result = await f.run({_benchrx_a2a_profile: true});
+  assert.equal(f.calls.length, 0);
+  assert.deepEqual(JSON.parse(result.response!), {
+    binding: 'JSONRPC',
+    protocolVersion: '1.0',
+    safeProbeAvailable: true,
+    safeProbeSkill: 'obs_catalogue',
+    skillCount: 1,
+    structuredOnly: true,
+  });
+});
+
+test('A2A structured probe invokes the selected safe JSON skill', async () => {
+  const dataCard = {
+    ...card(true, false),
+    defaultInputModes: ['application/json'],
+    defaultOutputModes: ['application/json'],
+    skills: [{id: 'obs_catalogue', name: 'Catalogue', description: 'List reference methodology', inputModes: ['application/json'], outputModes: ['application/json']}],
+  };
+  const f = fixture({
+    modern: true,
+    card: dataCard,
+    result: {role: 'ROLE_AGENT', messageId: 'm2', parts: [{data: {skill: 'obs_catalogue', items: []}}]},
+  });
+  const result = await f.run({_benchrx_a2a_structured_probe: true});
+  assert.equal(result.outcome, 'observed_response');
+  const params = f.calls[0].body.params as Record<string, any>;
+  assert.deepEqual(params.message.parts[0].data, {skill: 'obs_catalogue'});
+});

@@ -195,8 +195,57 @@ def evaluate_text(test: dict[str, Any], text: str) -> bool:
     return False
 
 
+def _structured_json_value(text: str) -> Any:
+    try:
+        value=json.loads(text)
+    except (ValueError,TypeError):
+        return None
+    return value if isinstance(value,(dict,list)) else None
+
+async def _run_structured_a2a_test(client: httpx.AsyncClient,endpoint_url: str,test: dict[str,Any]) -> dict[str,Any]:
+    kind=test['kind']
+    payloads=([{'_benchrx_a2a_structured_probe':True},{'_benchrx_a2a_structured_probe':True}]
+              if kind=='a2a_structured_repeatability' else [test.get('payload',{'_benchrx_a2a_structured_probe':True})])
+    attempts=[]; raws=[]; values=[]
+    for payload in payloads:
+        response,latency,error=await send_request(client,endpoint_url,payload)
+        raw=response_payload(response) if response is not None else {'error':error or 'transport_error'}
+        text=extract_response(raw.get('body'))
+        status=response.status_code if response is not None else None
+        attempts.append({'http_status':status,'transport_error':error or ('no_response' if response is None else None),
+                         'response_observed':bool(text),'contract_observed':response is not None,'latency_ms':latency})
+        raws.append(raw); values.append(_structured_json_value(text) if text else None)
+    complete=all(a['contract_observed'] for a in attempts)
+    if kind=='a2a_structured_probe':
+        passed=(values[0] is not None) if complete else None
+        reason='Structured skill returned machine-readable data' if passed else 'Structured skill did not return valid machine-readable data' if passed is False else 'Structured skill execution was not observed'
+    elif kind=='a2a_structured_repeatability':
+        if not complete: passed=None
+        else:
+            canonical=[json.dumps(v,sort_keys=True,separators=(',',':')) if v is not None else None for v in values]
+            passed=all(v is not None for v in values) and canonical[0]==canonical[1]
+        reason='Repeated structured calls returned the same normalized result' if passed else 'Repeated structured calls were not stable' if passed is False else 'Repeatability evidence was incomplete'
+    else:
+        body=raws[0].get('body') if raws else None
+        diagnostics=body.get('diagnostics') if isinstance(body,dict) and isinstance(body.get('diagnostics'),dict) else {}
+        code=diagnostics.get('code'); upstream_status=diagnostics.get('httpStatus')
+        status=attempts[0]['http_status'] if attempts else None
+        rejected=(status in {400,422} or
+                  (status==502 and code in {'protocol_error','invalid_config','unsupported_capability','malformed_response'}) or
+                  (status==502 and code=='http_error' and upstream_status in {400,404,422}))
+        passed=rejected if complete else None
+        reason='Invalid structured request was rejected' if passed else 'Invalid structured request was accepted or failed ambiguously' if passed is False else 'Structured rejection evidence was incomplete'
+    raw_response=raws[0] if len(raws)==1 else {'responses':raws}
+    return {'passed':passed,'score':100 if passed is True else 0 if passed is False else None,
+            'latency_ms':round(sum(a['latency_ms'] for a in attempts)/len(attempts)),'reason':reason,
+            'raw_response':raw_response,'execution':{'attempts':attempts},
+            'observed':any(a['response_observed'] or a['contract_observed'] for a in attempts),'evidence_complete':complete}
+
+
 async def run_test(client: httpx.AsyncClient, endpoint_url: str, test: dict[str, Any]) -> dict[str, Any]:
     kind = test['kind']
+    if kind.startswith('a2a_structured_'):
+        return await _run_structured_a2a_test(client, endpoint_url, test)
     messages = test.get('messages', []) if kind == 'paired_exact' else [test.get('message')]
     if kind == 'repeatability':
         messages = messages * 2

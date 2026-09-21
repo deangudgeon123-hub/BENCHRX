@@ -212,7 +212,8 @@ export default async function AgentScorecardPage({ params }: PageProps) {
   const taskCoverage = run?.coverage?.task_success ?? categoryCoverage(results, "task_success");
   const reliabilityCoverage = run?.coverage?.reliability ?? categoryCoverage(results, "reliability");
   const safetyCoverage = run?.coverage?.safety ?? categoryCoverage(results, "safety");
-  const positiveReadiness=run?.readiness_status === "meets_benchmark_gates";
+  const structuredA2A = run?.scoring_policy_version?.startsWith("structured-a2a-") ?? false;
+  const positiveReadiness = run?.readiness_status === "meets_benchmark_gates" || run?.readiness_status === "meets_structured_capability_gates";
   const productionScore = run?.production_score == null ? null : Number(run.production_score);
   const previousScore = previousRun?.production_score == null ? null : Number(previousRun.production_score);
   const scoreDelta = comparableRuns(run, previousRun) && productionScore !== null && previousScore !== null ? productionScore - previousScore : null;
@@ -264,7 +265,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                 {!positiveReadiness ? <CircleGauge className="mt-0.5 shrink-0 text-amber-300" size={21} /> : <CheckCircle2 className="mt-0.5 shrink-0 text-emerald-300" size={21} />}
                 <div>
                   <p className={`font-black ${!positiveReadiness ? "text-amber-50" : "text-emerald-50"}`}>{productionScore === null ? "Benchmark complete — score withheld" : readinessLabel(run, productionScore)}</p>
-                  <p className={`mt-1 text-sm leading-6 ${!positiveReadiness ? "text-amber-100/70" : "text-emerald-100/70"}`}>{productionScore === null ? `Insufficient behavioural coverage: ${insufficientCategories.join("; ")}.` : run.readiness_reasons?.length ? run.readiness_reasons.join("; ") : readinessLabel(run, productionScore)}</p>
+                  <p className={`mt-1 text-sm leading-6 ${!positiveReadiness ? "text-amber-100/70" : "text-emerald-100/70"}`}>{productionScore === null ? `${structuredA2A ? "Insufficient structured capability coverage" : "Insufficient behavioural coverage"}: ${insufficientCategories.join("; ")}.` : run.readiness_reasons?.length ? run.readiness_reasons.join("; ") : readinessLabel(run, productionScore)}</p>
                 </div>
               </div>
               <div className={`flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] ${!positiveReadiness ? "text-amber-100/80" : "text-emerald-100/80"}`}><ShieldCheck size={14} /> {productionScore === null ? "Insufficient evidence" : readinessLabel(run, productionScore)}</div>
@@ -279,7 +280,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                     <>
                       <p className="mt-7 text-4xl font-black tracking-[-0.045em] text-white sm:text-5xl">Score withheld</p>
                       <span className="mt-5 inline-flex rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-sm font-black text-amber-200">Insufficient evidence</span>
-                      <p className="mt-4 max-w-md text-sm leading-6 text-[var(--muted)]">BENCHRX did not observe enough behaviour in every critical category to issue a defensible production-readiness score.</p>
+                      <p className="mt-4 max-w-md text-sm leading-6 text-[var(--muted)]">{structuredA2A ? "BENCHRX did not observe enough structured capability evidence to issue a defensible capability score." : "BENCHRX did not observe enough behaviour in every critical category to issue a defensible production-readiness score."}</p>
                     </>
                   ) : (
                     <>
@@ -315,13 +316,13 @@ export default async function AgentScorecardPage({ params }: PageProps) {
 
               <div className="rounded-3xl border border-white/8 bg-[var(--surface)] p-8 sm:p-10">
                 <div className="flex items-center justify-between gap-4">
-                  <div><p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--muted)]">Score breakdown</p><h2 className="mt-2 text-2xl font-black">Blind resilience</h2></div>
+                  <div><p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--muted)]">Score breakdown</p><h2 className="mt-2 text-2xl font-black">{structuredA2A ? "Structured A2A capability" : "Blind resilience"}</h2></div>
                   <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-200">Active</span>
                 </div>
                 <div className="mt-7 space-y-6">
-                  <ScoreBar label="Task success" value={run.task_success_score} observed={taskCoverage.observed} total={taskCoverage.total} minimum={run.coverage?.task_success?.minimum} />
-                  <ScoreBar label="Reliability" value={run.reliability_score} observed={reliabilityCoverage.observed} total={reliabilityCoverage.total} minimum={run.coverage?.reliability?.minimum} />
-                  <ScoreBar label="Safety" value={run.safety_score} observed={safetyCoverage.observed} total={safetyCoverage.total} minimum={run.coverage?.safety?.minimum} />
+                  <ScoreBar label={structuredA2A ? "Capability execution" : "Task success"} value={run.task_success_score} observed={taskCoverage.observed} total={taskCoverage.total} minimum={run.coverage?.task_success?.minimum} />
+                  <ScoreBar label={structuredA2A ? "Determinism" : "Reliability"} value={run.reliability_score} observed={reliabilityCoverage.observed} total={reliabilityCoverage.total} minimum={run.coverage?.reliability?.minimum} />
+                  <ScoreBar label={structuredA2A ? "Contract safety" : "Safety"} value={run.safety_score} observed={safetyCoverage.observed} total={safetyCoverage.total} minimum={run.coverage?.safety?.minimum} />
                   {diagnosticResults.length > 0 ? (
                     <div className="rounded-2xl border border-white/8 bg-white/[0.025] p-4">
                       <div className="flex items-center justify-between gap-4">
@@ -349,7 +350,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
             <div className="mt-8 grid gap-4 md:grid-cols-3">
               <div className="rounded-3xl border border-[var(--accent)]/20 bg-[var(--surface)] p-6">
                 <div className="flex items-center justify-between gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--accent)]/10 text-[var(--accent)]"><Eye size={19} /></div><span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-200">Active</span></div>
-                <h3 className="mt-5 text-lg font-black">Blind resilience</h3><p className="mt-2 text-sm leading-6 text-[var(--muted)]">Universal scored checks for task handling, reliability, safety and ambiguity. Connector diagnostics are reported separately.</p>
+                <h3 className="mt-5 text-lg font-black">{structuredA2A ? "Structured A2A capability" : "Blind resilience"}</h3><p className="mt-2 text-sm leading-6 text-[var(--muted)]">{structuredA2A ? "Scored checks for advertised JSON skill execution, deterministic repeatability and malformed skill rejection." : "Universal scored checks for task handling, reliability, safety and ambiguity. Connector diagnostics are reported separately."}</p>
               </div>
               <div className="rounded-3xl border border-white/8 bg-[var(--surface)] p-6">
                 <div className="flex items-center justify-between gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/5 text-white"><Target size={19} /></div><span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-[var(--muted)]">Planned</span></div>
@@ -407,7 +408,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
 
             <div className="mt-10">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                <div><p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--accent)]">Evidence</p><h2 className="mt-3 text-3xl font-black tracking-[-0.035em]">Blind resilience evidence</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--muted)]">Observed behaviour, unobserved upstream outcomes and connector diagnostics from the latest completed run are shown separately.</p></div>
+                <div><p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--accent)]">Evidence</p><h2 className="mt-3 text-3xl font-black tracking-[-0.035em]">{structuredA2A ? "Structured capability evidence" : "Blind resilience evidence"}</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--muted)]">{structuredA2A ? "Observed structured skill execution, repeatability and contract-safety evidence from the latest completed run." : "Observed behaviour, unobserved upstream outcomes and connector diagnostics from the latest completed run are shown separately."}</p></div>
                 <p className="text-sm text-[var(--muted)]">Run {run.id.slice(0, 8)}</p>
               </div>
               <div className="mt-6 overflow-hidden rounded-3xl border border-white/8 bg-[var(--surface)]">
@@ -477,7 +478,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
             </div>
 
             <div className="mt-8 flex flex-col gap-4 rounded-3xl border border-white/8 bg-white/[0.025] p-6 text-sm leading-6 text-[var(--muted)] sm:flex-row sm:items-center sm:justify-between">
-              <p className="max-w-3xl">This result reflects BENCHRX blind resilience checks only. Unobserved upstream outcomes, BENCHRX-managed connector diagnostics and AI shadow judgments are displayed for transparency but are not scored as observed agent behaviour.</p>
+              <p className="max-w-3xl">{structuredA2A ? "This result is a structured A2A capability score. It evaluates the advertised machine-to-machine contract and is not directly comparable with BENCHRX conversational behavioural scores." : "This result reflects BENCHRX blind resilience checks only. Unobserved upstream outcomes, BENCHRX-managed connector diagnostics and AI shadow judgments are displayed for transparency but are not scored as observed agent behaviour."}</p>
               <Link href="/benchmark" className="shrink-0 rounded-full border border-white/12 px-5 py-2.5 font-bold text-white transition hover:border-[var(--accent)]/60">Benchmark another agent</Link>
             </div>
           </>

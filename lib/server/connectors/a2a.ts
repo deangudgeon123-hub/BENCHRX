@@ -150,7 +150,13 @@ function safeDataProbeSkill(connection: Connection): A2ASkill | undefined {
     .sort((a, b) => b.score - a.score || a.skill.id.localeCompare(b.skill.id))[0]?.skill;
 }
 
-function prepareInput(connection: Connection, input: {hasMessage: boolean; message: unknown; connectionTest: boolean}): PreparedInput {
+function prepareInput(connection: Connection, input: {hasMessage: boolean; message: unknown; connectionTest: boolean; structuredProbe: boolean}): PreparedInput {
+  if (input.structuredProbe) {
+    const dataSkill = safeDataProbeSkill(connection);
+    if (!dataSkill) throw new Fault('unsupported_capability', 'structured_probe');
+    return {kind: 'data', value: {skill: dataSkill.id}, outputModes: acceptedOutputs(connection, dataSkill)};
+  }
+
   if (input.connectionTest) {
     const textSkill = connection.skills.find(skill => supportsSkillMode(skill, 'text/plain', connection.defaultInputModes));
     if (textSkill) {
@@ -303,6 +309,22 @@ export function createA2AConnector(io: ConnectorIO = publicConnectorIO): Connect
       };
     },
     async invoke(connection, input) {
+      if (input.profileProbe) {
+        const skillInputs = connection.skills.length
+          ? connection.skills.map(skill => effectiveModes(skill, 'input', connection.defaultInputModes))
+          : [connection.defaultInputModes];
+        const textCapable = skillInputs.some(modes => modes.includes('text/plain'));
+        const dataCapable = skillInputs.some(modes => modes.includes('application/json'));
+        const safeSkill = safeDataProbeSkill(connection);
+        return {text: normalizedData({
+          structuredOnly: dataCapable && !textCapable,
+          safeProbeAvailable: Boolean(safeSkill),
+          safeProbeSkill: safeSkill?.id ?? null,
+          skillCount: connection.skills.length,
+          protocolVersion: connection.version,
+          binding: connection.binding,
+        })};
+      }
       const prepared = prepareInput(connection, input);
       const rpc = connection.binding === 'JSONRPC';
       const modern = connection.version === '1.0';
@@ -352,6 +374,7 @@ export function createA2AConnector(io: ConnectorIO = publicConnectorIO): Connect
       skillCount: connection.skills.length,
       inputModes: connection.defaultInputModes,
       outputModes: connection.defaultOutputModes,
+      safeStructuredProbe: Boolean(safeDataProbeSkill(connection)),
     }),
   };
 }

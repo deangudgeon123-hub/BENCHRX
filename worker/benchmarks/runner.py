@@ -1,27 +1,77 @@
 from __future__ import annotations
 import asyncio
 import contextlib
+import json
+import os
 from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
 from fastapi import HTTPException
 from benchmarks.evaluator import run_test
-from benchmarks.policy import assess, suite_manifest, SCORING_POLICY_VERSION
+from benchmarks.policy import (assess, suite_manifest, SCORING_POLICY_VERSION, A2A_STRUCTURED_TESTS,
+                               A2A_STRUCTURED_SCORING_POLICY_VERSION, a2a_structured_manifest,
+                               assess_a2a_structured)
 from benchmarks.tests import BENCHMARK_SUITE_VERSION, TESTS
 from config import AI_JUDGE_TEST_KEYS
 from judges.openai_judge import judge_with_openai
 from services.public_network import public_client
-from services.agent_client import is_trusted_gradio_adapter, GRADIO_REQUEST_TIMEOUT_SECONDS
+from services.agent_client import (is_trusted_gradio_adapter, GRADIO_REQUEST_TIMEOUT_SECONDS,
+                                   send_request, extract_response, response_payload)
 from services.supabase import get_supabase
 from services.redaction import redact,known_secrets
 
 
 def uses_benchrx_adapter(endpoint_url: str) -> bool:
-    return urlparse(endpoint_url).path.rstrip('/') in {'/api/adapters/generic','/api/adapters/gradio','/api/adapters/storkie'}
+    return urlparse(endpoint_url).path.rstrip('/') in {
+        '/api/adapters/generic','/api/adapters/gradio','/api/adapters/storkie',
+        '/api/adapters/a2a','/api/adapters/langgraph','/api/adapters/openai-agents'
+    }
+
+def _trusted_a2a_adapter(endpoint_url: str) -> bool:
+    parsed=urlparse(endpoint_url)
+    trusted={value.strip().rstrip('/') for value in os.getenv('BENCHRX_ADAPTER_ORIGINS','').split(',') if value.strip()}
+    return f'{parsed.scheme}://{parsed.netloc}' in trusted and parsed.path.rstrip('/')=='/api/adapters/a2a'
+
+async def _pending_context(supabase,run_id: str) -> dict[str,Any]:
+    def load() -> dict[str,Any]:
+        rows=supabase.table('benchmark_runs').select('agent_id,suite_manifest,connection_snapshot').eq('id',run_id).limit(1).execute().data
+        if not rows:return {}
+        row=rows[0]
+        snapshot=row.get('connection_snapshot') if isinstance(row.get('connection_snapshot'),dict) else {}
+        endpoint=snapshot.get('endpoint_url')
+        if not endpoint:
+            agents=supabase.table('agents').select('endpoint_url').eq('id',row['agent_id']).limit(1).execute().data
+            endpoint=agents[0].get('endpoint_url') if agents else None
+        return {'endpoint_url':endpoint,'suite_manifest':row.get('suite_manifest')}
+    return await asyncio.to_thread(load)
+
+async def _structured_a2a_available(endpoint_url: str) -> bool:
+    if not _trusted_a2a_adapter(endpoint_url):return False
+    async with public_client() as client:
+        response,_,_=await send_request(client,endpoint_url,{'_benchrx_a2a_profile':True})
+    if response is None or response.status_code!=200:return False
+    body=response_payload(response).get('body')
+    text=extract_response(body)
+    if not text:return False
+    try:profile=json.loads(text)
+    except (ValueError,TypeError):return False
+    return isinstance(profile,dict) and profile.get('structuredOnly') is True and profile.get('safeProbeAvailable') is True
+
+async def _select_plan(supabase,run_id: str):
+    context=await _pending_context(supabase,run_id)
+    existing=context.get('suite_manifest')
+    if isinstance(existing,dict):
+        if existing.get('scoring_policy_version')==A2A_STRUCTURED_SCORING_POLICY_VERSION:
+            return existing,A2A_STRUCTURED_TESTS,assess_a2a_structured
+        return existing,TESTS,assess
+    endpoint=context.get('endpoint_url')
+    if isinstance(endpoint,str) and await _structured_a2a_available(endpoint):
+        return a2a_structured_manifest(),A2A_STRUCTURED_TESTS,assess_a2a_structured
+    return suite_manifest(),TESTS,assess
 
 
 def _outcome_observed(test: dict[str, Any], outcome: dict[str, Any]) -> bool:
-    return any(a.get('response_observed') is True for a in outcome.get('execution',{}).get('attempts',[]))
+    return any(a.get('response_observed') is True or a.get('contract_observed') is True for a in outcome.get('execution',{}).get('attempts',[]))
 
 
 def run_timeout_seconds(endpoint_url: str) -> int:
@@ -42,7 +92,8 @@ async def rpc(supabase, name, **params):
 async def execute_run(run_id: str) -> dict[str, Any]:
     supabase=get_supabase()
     token=str(uuid4())
-    claim=await rpc(supabase,'benchrx_claim_run',p_run_id=run_id,p_token=token,p_manifest=suite_manifest())
+    manifest,tests,assessor=await _select_plan(supabase,run_id)
+    claim=await rpc(supabase,'benchrx_claim_run',p_run_id=run_id,p_token=token,p_manifest=manifest)
     if not claim:return {'status':'not_claimed','run_id':run_id}
     secret_values=known_secrets(claim["connection"]["endpoint_url"])
     owner=asyncio.current_task()
@@ -63,7 +114,7 @@ async def execute_run(run_id: str) -> dict[str, Any]:
             results=[]
             pending_judges=[]
             async with public_client() as client:
-                for test in TESTS:
+                for test in tests:
                     if test['key'] in saved:
                         r=saved[test['key']]
                         outcome={'passed':r['passed'],'score':r['score'],'latency_ms':r['latency_ms'],'reason':r['judge_reason'],
@@ -83,7 +134,7 @@ async def execute_run(run_id: str) -> dict[str, Any]:
                     results.append({**test,**outcome})
                     if outcome['observed'] and test['key'] in AI_JUDGE_TEST_KEYS:
                         pending_judges.append((test,outcome))
-            decision=assess(results)
+            decision=assessor(results)
             diagnostics=[r for r in results if r['category']=='error_handling' and r['score'] is not None]
             error_score=round(sum(r['score']*r['weight'] for r in diagnostics)/sum(r['weight'] for r in diagnostics),2) if diagnostics else None
             latencies=[a['latency_ms'] for r in results if r['category']!='error_handling' for a in r['execution']['attempts'] if a['response_observed']]
@@ -99,7 +150,7 @@ async def execute_run(run_id: str) -> dict[str, Any]:
                 await asyncio.to_thread(lambda: supabase.table('benchmark_shadow_judgments').upsert({'benchmark_run_id':run_id,'test_key':test['key'],'judge':redact(judge,secret_values)},on_conflict='benchmark_run_id,test_key').execute())
             except Exception:
                 pass # A separate shadow error must never change completed benchmark evidence.
-        return {'status':'completed','run_id':run_id,'suite_version':BENCHMARK_SUITE_VERSION,'scoring_policy_version':SCORING_POLICY_VERSION,**decision}
+        return {'status':'completed','run_id':run_id,'suite_version':manifest.get('suite_version',BENCHMARK_SUITE_VERSION),'scoring_policy_version':manifest.get('scoring_policy_version',SCORING_POLICY_VERSION),**decision}
     except asyncio.CancelledError:
         # Leave recoverable lease ownership to expire; never overwrite a new owner's state.
         raise
