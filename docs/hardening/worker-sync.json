@@ -32,7 +32,7 @@
     "worker/tests/test_redaction.py": "63bb2b290089868b69c6ddb5f9aa0c2c02dacbb66982546c2bc1599a5ba36c2b",
     "worker/tests/test_refusal_contract.py": "66ce600eec446e9ce4c7fa9e004b45420cd46719ac461fcdebe3aef0014d7cbd",
     "worker/tests/test_repeatability.py": "10e91bcbdcc47f681204f0d3c914822c720bdf2b722b73c2ccf38986fc7f9fec",
-    "worker/tests/test_runner.py": "48fe9838280c07ac788e8777d9000bb5228ce4f2fb77d9fdc4bf3b006ab8e825",
+    "worker/tests/test_runner.py": "a51653e4cd07d492dc82af3b3871c8366bf1243f278ba02f7c32c3e88105a848",
     "worker/tests/test_runtime_adapters.py": "33034327eff5bb774ebfa239a44049786ce113ccc25e89725d75479eaf260f0a",
     "worker/tests/test_shadow.py": "9188e61867e1312ca49a2ffd55209c78868ac57fc87d49da6312d692c33e4903",
     "worker/tests/test_uncertainty_contracts.py": "b519f3166770aea547f60f8bb24e45ba089fe3b53525e820f8026bed8483c40a",

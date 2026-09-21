@@ -2,7 +2,7 @@ from types import SimpleNamespace
 import asyncio
 import httpx
 import pytest
-from benchmarks import runner
+from benchmarks import evaluator, runner
 from benchmarks.tests import TESTS
 
 @pytest.mark.asyncio
@@ -17,6 +17,8 @@ async def test_runner_resumes_immutable_evidence_and_shadow_cannot_change_comple
     records={}; events=[]; summaries=[]; calls=0
     monkeypatch.setenv('BENCHRX_ADAPTER_ORIGINS', 'https://benchrx.example')
     monkeypatch.setenv('BENCHRX_ADAPTER_SECRET', 'a' * 32)
+    monkeypatch.setattr(evaluator,'A2A_REQUEST_SPACING_SECONDS',0)
+    monkeypatch.setattr(evaluator,'A2A_RATE_LIMIT_BACKOFF_SECONDS',(0,))
     deadlines=[]
     real_timeout=asyncio.timeout
     def timeout(seconds):
