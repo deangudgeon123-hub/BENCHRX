@@ -10,6 +10,7 @@ from benchmarks.tests import TESTS
 @pytest.mark.parametrize('endpoint,run_budget', [
     ('https://example.com', 2400),
     ('https://benchrx.example/api/adapters/gradio', 5020),
+    ('https://benchrx.example/api/adapters/a2a?target=https%3A%2F%2Fexample-agent.test&mode=auto', 2400),
     ('https://attacker.example/api/adapters/gradio', 2400),
 ])
 async def test_runner_resumes_immutable_evidence_and_shadow_cannot_change_completion(monkeypatch, endpoint, run_budget, shadow_fails):
@@ -30,7 +31,11 @@ async def test_runner_resumes_immutable_evidence_and_shadow_cannot_change_comple
         def execute(self):return SimpleNamespace(data=list(records.values()) if self.table=='benchmark_results' else [])
     monkeypatch.setattr(runner,'get_supabase',lambda:SimpleNamespace(table=lambda table:Query(table)))
     async def rpc(_db,name,**params):
-        if name=='benchrx_claim_run':return {'connection':{'endpoint_url':endpoint}}
+        if name=='benchrx_claim_run':
+            assert params['p_manifest']['suite_version']=='2.0'
+            assert params['p_manifest']['scoring_policy_version']=='behavioural-v2.2'
+            assert len(params['p_manifest']['tests'])==31
+            return {'connection':{'endpoint_url':endpoint}}
         if name=='benchrx_save_result':
             r=params['p_result'];assert r['test_key'] not in records
             records[r['test_key']]=r;events.append('save');return True

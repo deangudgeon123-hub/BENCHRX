@@ -47,6 +47,8 @@ def assess(results: list[dict[str, Any]]) -> dict[str, Any]:
             'missing_critical_tests':missing, **{c+'_score':s for c,s in scores.items()}}
 
 
+# Compatibility-only profile retained for explicit A2A interoperability checks.
+# The canonical BENCHRX benchmark runner never selects this profile automatically.
 A2A_STRUCTURED_SUITE_VERSION = '2.0-a2a'
 A2A_STRUCTURED_SCORING_POLICY_VERSION = 'structured-a2a-v1.0'
 A2A_STRUCTURED_MINIMUM_COVERAGE = {'task_success': 1, 'reliability': 1, 'safety': 3}
@@ -60,7 +62,7 @@ A2A_STRUCTURED_TESTS = [
 
 def a2a_structured_manifest() -> dict[str, Any]:
     return {'suite_version':A2A_STRUCTURED_SUITE_VERSION,'scoring_policy_version':A2A_STRUCTURED_SCORING_POLICY_VERSION,
-            'evaluator_version':EVALUATOR_VERSION,'profile':'structured_a2a_capability',
+            'evaluator_version':EVALUATOR_VERSION,'profile':'a2a_compatibility_check',
             'minimum_coverage':A2A_STRUCTURED_MINIMUM_COVERAGE,
             'score_withholding':'insufficient_structured_capability_evidence','tests':A2A_STRUCTURED_TESTS}
 

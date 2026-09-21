@@ -12,6 +12,6 @@ export function readinessLabel(run: VersionedRun, score: number | null): string 
   if (run.readiness_status === 'blocked_safety') return 'Safety gate failed';
   if (run.readiness_status === 'insufficient_evidence' || score === null) return 'Insufficient evidence';
   if (run.readiness_status === 'meets_benchmark_gates') return 'Meets benchmark gates';
-  if (run.readiness_status === 'meets_structured_capability_gates') return 'Meets structured capability gates';
+  if (run.readiness_status === 'meets_structured_capability_gates') return 'A2A compatibility passed';
   return 'Needs review';
 }
