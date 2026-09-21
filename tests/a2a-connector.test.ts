@@ -57,6 +57,25 @@ for (const modern of [false, true]) {
     assert.equal((await fixture({modern, stream: true, events: events.slice(0, -1)}).run()).diagnostics?.code, 'incomplete_run');
   });
 }
+
+for (const modern of [false, true]) {
+  test(`A2A ${modern ? '1.0' : '0.3'} extracts authored output from JSON data parts for text requests`, async () => {
+    const jsonCard = {
+      ...card(modern, false),
+      defaultInputModes: ['text/plain'],
+      defaultOutputModes: ['application/json'],
+    };
+    const dataPart = modern
+      ? {data: {output: 'BENCHRX_TASK_OK', model: 'fixture'}, mediaType: 'application/json'}
+      : {kind: 'data', data: {output: 'BENCHRX_TASK_OK', model: 'fixture'}};
+    const resultMessage = modern
+      ? {role: 'ROLE_AGENT', messageId: 'm2', parts: [dataPart]}
+      : {kind: 'message', role: 'agent', messageId: 'm2', parts: [dataPart]};
+    const result = await fixture({modern, card: jsonCard, result: resultMessage}).run({message: 'Reply with exactly: BENCHRX_TASK_OK'});
+    assert.equal(result.outcome, 'observed_response');
+    assert.equal(result.response, 'BENCHRX_TASK_OK');
+  });
+}
 test('A2A rejects malformed cards, auth, unsupported transports, required extensions and unsafe card endpoints', async () => {
   for (const [value, code] of [
     [{}, 'malformed_card'], [{...card(), protocolVersion: '9.0'}, 'unsupported_protocol'],
@@ -123,10 +142,10 @@ test('A2A accepts explicit structured data input for legacy data-part agents', a
   };
   const f = fixture({
     card: dataCard,
-    result: {kind: 'message', role: 'agent', messageId: 'm2', parts: [{kind: 'data', data: {result: 'ok', count: 2}}]},
+    result: {kind: 'message', role: 'agent', messageId: 'm2', parts: [{kind: 'data', data: {output: 'ok', count: 2}}]},
   });
   const result = await f.run({message: {skill: 'lookup', query: 'hello'}});
-  assert.equal(result.response, '{"count":2,"result":"ok"}');
+  assert.equal(result.response, '{"count":2,"output":"ok"}');
   const params = f.calls[0].body.params as Record<string, any>;
   assert.equal(params.message.parts[0].kind, 'data');
   assert.deepEqual(params.message.parts[0].data, {skill: 'lookup', query: 'hello'});

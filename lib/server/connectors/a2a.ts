@@ -44,23 +44,36 @@ function normalizedData(value: unknown): string {
   return encoded === undefined ? '' : encoded;
 }
 
-function partsOutput(value: unknown): string {
+const authoredDataKeys = ['output', 'response', 'text', 'content'] as const;
+
+function dataOutput(value: unknown, preferAuthoredText: boolean): string {
+  if (preferAuthoredText) {
+    const data = object(value);
+    for (const key of authoredDataKeys) {
+      const candidate = data[key];
+      if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+    }
+  }
+  return normalizedData(value);
+}
+
+function partsOutput(value: unknown, preferAuthoredText = false): string {
   if (!Array.isArray(value)) return '';
   return value.map(raw => {
     const part = object(raw);
     const kind = part.kind;
     if ((kind === undefined || kind === 'text') && typeof part.text === 'string') return part.text;
-    if ((kind === undefined || kind === 'data') && Object.prototype.hasOwnProperty.call(part, 'data')) return normalizedData(part.data);
+    if ((kind === undefined || kind === 'data') && Object.prototype.hasOwnProperty.call(part, 'data')) return dataOutput(part.data, preferAuthoredText);
     return '';
   }).filter(Boolean).join('\n');
 }
 
-function assistantOutput(value: unknown): string {
+function assistantOutput(value: unknown, preferAuthoredText = false): string {
   const message = object(value);
-  return ['agent', 'ROLE_AGENT'].includes(String(message.role)) ? partsOutput(message.parts) : '';
+  return ['agent', 'ROLE_AGENT'].includes(String(message.role)) ? partsOutput(message.parts, preferAuthoredText) : '';
 }
 
-function decode(values: unknown[], modern: boolean, id: string, rpc: boolean): {done: boolean; text: string} {
+function decode(values: unknown[], modern: boolean, id: string, rpc: boolean, preferAuthoredText = false): {done: boolean; text: string} {
   let done = false, text = '', taskId = '';
   const artifacts = new Map<string, string>();
   for (const value of values) {
@@ -77,7 +90,7 @@ function decode(values: unknown[], modern: boolean, id: string, rpc: boolean): {
 
     if (Object.keys(message).length) {
       if (taskId || done) throw new Fault('malformed_response');
-      text = assistantOutput(message);
+      text = assistantOutput(message, preferAuthoredText);
       done = true;
       continue;
     }
@@ -98,10 +111,10 @@ function decode(values: unknown[], modern: boolean, id: string, rpc: boolean): {
         for (const rawArtifact of task.artifacts) {
           const artifact = object(rawArtifact);
           if (typeof artifact.artifactId !== 'string') throw new Fault('malformed_response');
-          artifacts.set(artifact.artifactId, partsOutput(artifact.parts));
+          artifacts.set(artifact.artifactId, partsOutput(artifact.parts, preferAuthoredText));
         }
       }
-      text = assistantOutput(object(task.status).message) || (Array.isArray(task.history) ? assistantOutput(task.history.at(-1)) : '');
+      text = assistantOutput(object(task.status).message, preferAuthoredText) || (Array.isArray(task.history) ? assistantOutput(task.history.at(-1), preferAuthoredText) : '');
     }
 
     if (current === artifactUpdate) {
@@ -109,7 +122,7 @@ function decode(values: unknown[], modern: boolean, id: string, rpc: boolean): {
       if (typeof artifact.artifactId !== 'string' || !artifact.artifactId) throw new Fault('malformed_response');
       artifacts.set(
         artifact.artifactId,
-        (current.append === true ? artifacts.get(artifact.artifactId) ?? '' : '') + partsOutput(artifact.parts),
+        (current.append === true ? artifacts.get(artifact.artifactId) ?? '' : '') + partsOutput(artifact.parts, preferAuthoredText),
       );
     } else {
       const status = object(current.status);
@@ -117,7 +130,7 @@ function decode(values: unknown[], modern: boolean, id: string, rpc: boolean): {
       if (terminal.has(state)) {
         if (state !== 'completed') throw new Fault(state === 'input-required' || state === 'auth-required' ? 'unsupported_capability' : 'failed_run');
         done = true;
-        text = assistantOutput(status.message) || text;
+        text = assistantOutput(status.message, preferAuthoredText) || text;
       }
     }
   }
@@ -338,7 +351,8 @@ export function createA2AConnector(io: ConnectorIO = publicConnectorIO): Connect
       const method = modern
         ? connection.streaming ? 'SendStreamingMessage' : 'SendMessage'
         : connection.streaming ? 'message/stream' : 'message/send';
-      const parse = (text: string) => decode(sseFrames(text).map(frame => parseJson(frame.data)), modern, id, rpc);
+      const preferAuthoredText = prepared.kind === 'text';
+      const parse = (text: string) => decode(sseFrames(text).map(frame => parseJson(frame.data)), modern, id, rpc, preferAuthoredText);
       const params = {
         message,
         ...(connection.tenant !== undefined ? {tenant: connection.tenant} : {}),
@@ -360,7 +374,7 @@ export function createA2AConnector(io: ConnectorIO = publicConnectorIO): Connect
         ...(connection.streaming ? {completeWhen: (text: string) => {try {return parse(text).done;} catch {return true;}}} : {}),
       });
       checkHttp(response.status);
-      const result = connection.streaming ? parse(response.text) : decode([parseJson(response.text)], modern, id, rpc);
+      const result = connection.streaming ? parse(response.text) : decode([parseJson(response.text)], modern, id, rpc, preferAuthoredText);
       if (!result.done) throw new Fault('incomplete_run');
       return {text: result.text};
     },
