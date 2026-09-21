@@ -6,7 +6,7 @@ export type ConnectorIO = {
   request: typeof pinnedHttpsRequest;
 };
 export const publicConnectorIO: ConnectorIO = {pin: validateAndPinPublicHttpsUrl, request: pinnedHttpsRequest};
-export type InvocationInput = {hasMessage: boolean; message: unknown};
+export type InvocationInput = {hasMessage: boolean; message: unknown; connectionTest: boolean};
 export type ConnectorOutcome = 'observed_response' | 'unobserved_response' | 'connector_failure';
 export type ConnectorDiagnostics = {stage: string; code: string; httpStatus?: number; stepIndex?: number};
 export type ConnectorDiagnosis = {status: number; outcome: ConnectorOutcome; error?: string; diagnostics?: ConnectorDiagnostics};
@@ -41,6 +41,7 @@ export async function invokeNormalizedConnector<C, R>(provider: ConnectorProvide
     const connection = await provider.validate(config);
     const result = await provider.invoke(connection, {
       hasMessage: Object.prototype.hasOwnProperty.call(incoming, 'message'), message: incoming.message,
+      connectionTest: incoming._benchrx_connection_test === true,
     });
     const diagnosis = provider.diagnose(connection, result);
     return {provider: provider.id, outcome: diagnosis.outcome, status: diagnosis.status,

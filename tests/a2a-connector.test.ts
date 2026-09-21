@@ -24,7 +24,7 @@ function fixture(options: {card?: unknown; modern?: boolean; stream?: boolean; s
     },
   };
   const provider = createA2AConnector(io);
-  const run = () => invokeNormalizedConnector(provider, new URLSearchParams({target: url}), {message: 'hello'});
+  const run = (incoming: Record<string, unknown> = {message: 'hello'}) => invokeNormalizedConnector(provider, new URLSearchParams({target: url}), incoming);
   return {provider, run, calls, pins};
 }
 for (const modern of [false, true]) {
@@ -88,4 +88,46 @@ test('A2A persisted endpoint contains only allowlisted non-secret configuration'
   const endpoint = runtimeEndpoint({connectionType: 'a2a', targetUrl: url, apiKey: 'SECRET'}, 'https://benchrx.example');
   assert.equal(endpoint.pathname, '/api/adapters/a2a'); assert.ok(!endpoint.href.includes('SECRET'));
   assert.throws(() => runtimeEndpoint({connectionType: 'a2a', targetUrl: url + '?api_key=SECRET'}, 'https://benchrx.example'));
+});
+
+
+test('A2A connection test selects a safe advertised JSON skill and normalizes structured output', async () => {
+  const dataCard = {
+    ...card(true, false),
+    defaultInputModes: ['application/json', 'text/plain'],
+    defaultOutputModes: ['application/json', 'text/plain'],
+    skills: [
+      {id: 'obs_one_shot', name: 'Observe a domain', description: 'Run an audit', inputModes: ['application/json'], outputModes: ['application/json']},
+      {id: 'obs_catalogue', name: 'List the signal catalogue', description: 'Reference catalogue', inputModes: ['application/json'], outputModes: ['application/json']},
+    ],
+  };
+  const f = fixture({
+    modern: true,
+    card: dataCard,
+    result: {role: 'ROLE_AGENT', messageId: 'm2', parts: [{data: {z: 2, skill: 'obs_catalogue', a: 1}, mediaType: 'application/json'}]},
+  });
+  const result = await f.run({message: 'ignored', _benchrx_connection_test: true});
+  assert.equal(result.outcome, 'observed_response');
+  assert.equal(result.response, '{"a":1,"skill":"obs_catalogue","z":2}');
+  const params = f.calls[0].body.params as Record<string, any>;
+  assert.deepEqual(params.message.parts[0].data, {skill: 'obs_catalogue'});
+  assert.deepEqual(params.configuration.acceptedOutputModes, ['application/json']);
+});
+
+test('A2A accepts explicit structured data input for legacy data-part agents', async () => {
+  const dataCard = {
+    ...card(false, false),
+    defaultInputModes: ['application/json'],
+    defaultOutputModes: ['application/json'],
+    skills: [{id: 'lookup', name: 'Lookup', description: 'Structured lookup', inputModes: ['application/json'], outputModes: ['application/json']}],
+  };
+  const f = fixture({
+    card: dataCard,
+    result: {kind: 'message', role: 'agent', messageId: 'm2', parts: [{kind: 'data', data: {result: 'ok', count: 2}}]},
+  });
+  const result = await f.run({message: {skill: 'lookup', query: 'hello'}});
+  assert.equal(result.response, '{"count":2,"result":"ok"}');
+  const params = f.calls[0].body.params as Record<string, any>;
+  assert.equal(params.message.parts[0].kind, 'data');
+  assert.deepEqual(params.message.parts[0].data, {skill: 'lookup', query: 'hello'});
 });

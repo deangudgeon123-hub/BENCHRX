@@ -66,6 +66,7 @@ export async function POST(request: Request) {
         headers,
         body: JSON.stringify({
           _benchrx_config: connectorConfig,
+          _benchrx_connection_test: connectionType === "a2a",
           message: "Reply briefly to confirm this BENCHRX connection test was received.",
         }),
         cache: "no-store",
