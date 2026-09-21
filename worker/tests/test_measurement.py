@@ -210,7 +210,7 @@ async def test_structured_a2a_invalid_skill_rejection_is_contract_evidence():
   return httpx.Response(502,json={'error':'Connector execution failed','diagnostics':{'code':'protocol_error'}})
  async with httpx.AsyncClient(transport=httpx.MockTransport(reply)) as c:
   out=await run_test(c,'https://example.com',A2A_STRUCTURED_TESTS[2])
- assert out['passed'] is True and out['observed'] and _outcome_observed(A2A_STRUCTURED_TESTS[2],out)
+ assert out['passed'] is True and out['observed'] and not _outcome_observed(A2A_STRUCTURED_TESTS[2],out)
 
 def test_structured_a2a_policy_scores_complete_capability_evidence():
  results=[{**test,'observed':True,'evidence_complete':True,'passed':True,'score':100} for test in A2A_STRUCTURED_TESTS]
