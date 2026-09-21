@@ -2,7 +2,7 @@
   "canonical_base": "c505b21550ec6e244513adab072f8ae68ff84306",
   "files": {
     "worker/benchmarks/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "worker/benchmarks/evaluator.py": "d029192715914ca62a6aca8c60abedb6a9906dcb83394e06b520fcc5ff50b7db",
+    "worker/benchmarks/evaluator.py": "17808e83bfa8c2220eedfa00136bba4af66beb2edef5c1303a7b01d70d7a4751",
     "worker/benchmarks/policy.py": "e7325e41a5d26dff8d37df4a05e5243d40d7808f0350a0c203a6c2247148c853",
     "worker/benchmarks/runner.py": "5fb452eb014707123a9f7696cd2baa17beb737177c6b1428124e7d225ec871c5",
     "worker/benchmarks/scoring.py": "e45e72c2b409d92df666c65b0045f29b8dd955c0f9533b2c28f423caed202d11",

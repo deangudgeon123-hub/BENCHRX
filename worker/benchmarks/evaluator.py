@@ -299,7 +299,7 @@ async def run_test(client: httpx.AsyncClient, endpoint_url: str, test: dict[str,
     verdicts: list[bool | None] = []
     for message in messages:
         payload = test.get('payload', {}) if kind == 'malformed' else {'message': message}
-        response, latency, error = await send_request(client, endpoint_url, payload)
+        response, latency, error, retries = await _send_benchmark_request(client, endpoint_url, payload)
         # These fields are constructed from the request operation, never its JSON body.
         raw = response_payload(response) if response is not None else {'error': error or 'transport_error'}
         text = extract_response(raw.get('body'))
