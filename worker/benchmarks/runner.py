@@ -34,13 +34,13 @@ def _trusted_a2a_adapter(endpoint_url: str) -> bool:
 
 async def _pending_context(supabase,run_id: str) -> dict[str,Any]:
     def load() -> dict[str,Any]:
-        rows=supabase.table('benchmark_runs').select('agent_id,suite_manifest,connection_snapshot').eq('id',run_id).limit(1).execute().data
+        rows=supabase.table('benchmark_runs').select('agent_id,suite_manifest,connection_snapshot').eq('id',run_id).execute().data
         if not rows:return {}
         row=rows[0]
         snapshot=row.get('connection_snapshot') if isinstance(row.get('connection_snapshot'),dict) else {}
         endpoint=snapshot.get('endpoint_url')
         if not endpoint:
-            agents=supabase.table('agents').select('endpoint_url').eq('id',row['agent_id']).limit(1).execute().data
+            agents=supabase.table('agents').select('endpoint_url').eq('id',row['agent_id']).execute().data
             endpoint=agents[0].get('endpoint_url') if agents else None
         return {'endpoint_url':endpoint,'suite_manifest':row.get('suite_manifest')}
     return await asyncio.to_thread(load)
