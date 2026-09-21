@@ -14,6 +14,33 @@ from services.agent_client import extract_response, is_trusted_a2a_adapter, resp
 
 A2A_REQUEST_SPACING_SECONDS = 3.1
 A2A_RATE_LIMIT_BACKOFF_SECONDS = (5.0, 10.0, 20.0)
+A2A_AUTHORED_TEXT_KEYS = ('output', 'response', 'text', 'content')
+
+
+def _behavioural_response_text(endpoint_url: str, body: Any) -> str:
+    """Extract authored conversational text from the trusted A2A adapter envelope.
+
+    Some A2A agents advertise application/json output but place their authored
+    answer inside a JSON object such as {"output":"BENCHRX_TASK_OK", ...}. The
+    Vercel adapter returns that normalized JSON object as its string "response".
+    Behavioural contracts must score the authored answer, not the transport
+    envelope. Structured A2A capability tests bypass this helper and continue to
+    score the complete normalized JSON response.
+    """
+    text = extract_response(body)
+    if not text or not is_trusted_a2a_adapter(endpoint_url):
+        return text
+    try:
+        value = json.loads(text)
+    except (TypeError, ValueError):
+        return text
+    if not isinstance(value, dict):
+        return text
+    for key in A2A_AUTHORED_TEXT_KEYS:
+        candidate = value.get(key)
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+    return text
 
 
 def _rate_limited_response(response: httpx.Response | None) -> bool:
@@ -302,7 +329,7 @@ async def run_test(client: httpx.AsyncClient, endpoint_url: str, test: dict[str,
         response, latency, error, retries = await _send_benchmark_request(client, endpoint_url, payload)
         # These fields are constructed from the request operation, never its JSON body.
         raw = response_payload(response) if response is not None else {'error': error or 'transport_error'}
-        text = extract_response(raw.get('body'))
+        text = _behavioural_response_text(endpoint_url, raw.get('body'))
         status = response.status_code if response is not None else None
         attempts.append({'http_status': status, 'transport_error': error or ('no_response' if response is None else None),
                          'response_observed': bool(text), 'latency_ms': latency, 'rate_limit_retries': retries})

@@ -2,7 +2,7 @@
   "canonical_base": "c505b21550ec6e244513adab072f8ae68ff84306",
   "files": {
     "worker/benchmarks/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "worker/benchmarks/evaluator.py": "17808e83bfa8c2220eedfa00136bba4af66beb2edef5c1303a7b01d70d7a4751",
+    "worker/benchmarks/evaluator.py": "24ce3c845d5bb643bac73c0b18051be96a7c79c523e2e11f8f0fe3e939f3ef5f",
     "worker/benchmarks/policy.py": "e7325e41a5d26dff8d37df4a05e5243d40d7808f0350a0c203a6c2247148c853",
     "worker/benchmarks/runner.py": "5fb452eb014707123a9f7696cd2baa17beb737177c6b1428124e7d225ec871c5",
     "worker/benchmarks/scoring.py": "e45e72c2b409d92df666c65b0045f29b8dd955c0f9533b2c28f423caed202d11",
@@ -25,7 +25,7 @@
     "worker/tests/test_acknowledgement_contract.py": "4e6f858bf3de00a1b1674188c0f63d8ca9d830e7f34f1ed2f2a83efaf617d6e6",
     "worker/tests/test_clarification_contracts.py": "1d0c95582983a6ff202b6247cb2176a3136cb7ce2895904e07e03cf7392c9c2e",
     "worker/tests/test_gradio_timeouts.py": "69f9efdacc8f5d8abc80813f3459db7d71ee9271952732db31d2efda11228117",
-    "worker/tests/test_measurement.py": "20d7423e226891f58046f77cda1ec584312c6cb1dbde684bae147d090297339d",
+    "worker/tests/test_measurement.py": "c7201c1e1bd2b2da9d0b6e21a49172c32b9a04cb2aadc078e31ac761b6a977d8",
     "worker/tests/test_network.py": "0123825fbbf0c092b4fca0ec92d6637edfc8d0cb01d73209d001aebc049b3c8e",
     "worker/tests/test_policy.py": "b291a1ee1ab5e789a06c271644bb634acc3e719643bb5dcd5c1f3b8695bd8943",
     "worker/tests/test_queue_recovery.py": "e70fe169c59e5eac7081a30622d4da70ead0d79906f1c1f991d8e8d47dc96c89",
