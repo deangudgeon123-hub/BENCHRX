@@ -1,5 +1,6 @@
 import httpx
 import pytest
+from benchmarks import evaluator
 from benchmarks.evaluator import run_test, evaluate_text
 from benchmarks.runner import _outcome_observed, uses_benchrx_adapter
 from benchmarks.policy import A2A_STRUCTURED_TESTS, assess_a2a_structured
@@ -217,3 +218,24 @@ def test_structured_a2a_policy_scores_complete_capability_evidence():
  decision=assess_a2a_structured(results)
  assert decision['production_score']==100
  assert decision['readiness_status']=='meets_structured_capability_gates'
+
+
+@pytest.mark.asyncio
+async def test_a2a_rate_limit_is_paced_and_retried(monkeypatch):
+ monkeypatch.setenv('BENCHRX_ADAPTER_ORIGINS','https://benchrx.example')
+ monkeypatch.setenv('BENCHRX_ADAPTER_SECRET','a' * 32)
+ monkeypatch.setattr(evaluator,'A2A_REQUEST_SPACING_SECONDS',0)
+ monkeypatch.setattr(evaluator,'A2A_RATE_LIMIT_BACKOFF_SECONDS',(0,))
+ calls=0
+ def reply(_request):
+  nonlocal calls
+  calls+=1
+  if calls==1:
+   return httpx.Response(502,json={'error':'Connector execution failed','diagnostics':{'code':'upstream_http_error','stage':'transport','httpStatus':429}})
+  return httpx.Response(200,json={'response':'BENCHRX_TASK_OK'})
+ endpoint='https://benchrx.example/api/adapters/a2a?target=https%3A%2F%2Fagent.example&mode=auto'
+ async with httpx.AsyncClient(transport=httpx.MockTransport(reply)) as c:
+  out=await run_test(c,endpoint,TEST['task-exact-instruction'])
+ assert calls==2
+ assert out['passed'] is True and out['observed'] and out['evidence_complete']
+ assert out['execution']['attempts'][0]['rate_limit_retries']==1

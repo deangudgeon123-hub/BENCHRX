@@ -15,8 +15,8 @@ GRADIO_READ_TIMEOUT_SECONDS = 135
 GRADIO_REQUEST_TIMEOUT_SECONDS = 140
 
 
-def is_trusted_gradio_adapter(endpoint_url: str) -> bool:
-    """Use the same origin/path boundary as adapter auth, restricted to Gradio."""
+def _is_trusted_adapter(endpoint_url: str, path: str) -> bool:
+    """Require the same origin/path boundary used for internal adapter authentication."""
     try:
         validate_endpoint(endpoint_url)
     except ValueError:
@@ -24,8 +24,16 @@ def is_trusted_gradio_adapter(endpoint_url: str) -> bool:
     parsed = urlparse(endpoint_url)
     trusted = {x.strip().rstrip('/') for x in os.getenv('BENCHRX_ADAPTER_ORIGINS', '').split(',') if x.strip()}
     return (f'{parsed.scheme}://{parsed.netloc}' in trusted
-            and parsed.path.rstrip('/') == '/api/adapters/gradio'
+            and parsed.path.rstrip('/') == path
             and len(os.getenv('BENCHRX_ADAPTER_SECRET', '')) >= 32)
+
+
+def is_trusted_gradio_adapter(endpoint_url: str) -> bool:
+    return _is_trusted_adapter(endpoint_url, '/api/adapters/gradio')
+
+
+def is_trusted_a2a_adapter(endpoint_url: str) -> bool:
+    return _is_trusted_adapter(endpoint_url, '/api/adapters/a2a')
 
 
 def extract_response(payload: Any) -> str:

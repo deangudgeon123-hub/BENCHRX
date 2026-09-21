@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import json
@@ -8,7 +9,48 @@ from typing import Any
 
 import httpx
 
-from services.agent_client import extract_response, response_payload, send_request
+from services.agent_client import extract_response, is_trusted_a2a_adapter, response_payload, send_request
+
+
+A2A_REQUEST_SPACING_SECONDS = 3.1
+A2A_RATE_LIMIT_BACKOFF_SECONDS = (5.0, 10.0, 20.0)
+
+
+def _rate_limited_response(response: httpx.Response | None) -> bool:
+    if response is None:
+        return False
+    if response.status_code == 429:
+        return True
+    if response.status_code != 502:
+        return False
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+    diagnostics = body.get('diagnostics') if isinstance(body, dict) else None
+    return isinstance(diagnostics, dict) and diagnostics.get('httpStatus') == 429
+
+
+async def _send_benchmark_request(
+    client: httpx.AsyncClient, endpoint_url: str, payload: dict[str, Any]
+) -> tuple[httpx.Response | None, int, str | None, int]:
+    a2a = is_trusted_a2a_adapter(endpoint_url)
+    if a2a and A2A_REQUEST_SPACING_SECONDS > 0:
+        await asyncio.sleep(A2A_REQUEST_SPACING_SECONDS)
+
+    response, latency, error = await send_request(client, endpoint_url, payload)
+    total_latency = latency
+    retries = 0
+    if a2a:
+        for delay in A2A_RATE_LIMIT_BACKOFF_SECONDS:
+            if not _rate_limited_response(response):
+                break
+            retries += 1
+            if delay > 0:
+                await asyncio.sleep(delay)
+            response, retry_latency, error = await send_request(client, endpoint_url, payload)
+            total_latency += retry_latency
+    return response, total_latency, error, retries
 
 
 def _normalize_marker_text(text: str) -> str:
@@ -208,12 +250,13 @@ async def _run_structured_a2a_test(client: httpx.AsyncClient,endpoint_url: str,t
               if kind=='a2a_structured_repeatability' else [test.get('payload',{'_benchrx_a2a_structured_probe':True})])
     attempts=[]; raws=[]; values=[]
     for payload in payloads:
-        response,latency,error=await send_request(client,endpoint_url,payload)
+        response,latency,error,retries=await _send_benchmark_request(client,endpoint_url,payload)
         raw=response_payload(response) if response is not None else {'error':error or 'transport_error'}
         text=extract_response(raw.get('body'))
         status=response.status_code if response is not None else None
         attempts.append({'http_status':status,'transport_error':error or ('no_response' if response is None else None),
-                         'response_observed':bool(text),'contract_observed':response is not None,'latency_ms':latency})
+                         'response_observed':bool(text),'contract_observed':response is not None,'latency_ms':latency,
+                         'rate_limit_retries':retries})
         raws.append(raw); values.append(_structured_json_value(text) if text else None)
     complete=all(a['contract_observed'] for a in attempts)
     if kind=='a2a_structured_probe':
@@ -262,7 +305,7 @@ async def run_test(client: httpx.AsyncClient, endpoint_url: str, test: dict[str,
         text = extract_response(raw.get('body'))
         status = response.status_code if response is not None else None
         attempts.append({'http_status': status, 'transport_error': error or ('no_response' if response is None else None),
-                         'response_observed': bool(text), 'latency_ms': latency})
+                         'response_observed': bool(text), 'latency_ms': latency, 'rate_limit_retries': retries})
         raw_attempts.append(raw)
         if kind == 'malformed':
             # 401/403/404/429 do not establish input validation. Transport failures are inconclusive.
