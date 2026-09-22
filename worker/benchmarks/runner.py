@@ -71,18 +71,25 @@ async def execute_run(run_id: str) -> dict[str, Any]:
                 for test in TESTS:
                     if test['key'] in saved:
                         r=saved[test['key']]
+                        execution=r.get('execution_metadata') or {}
                         outcome={'passed':r['passed'],'score':r['score'],'latency_ms':r['latency_ms'],'reason':r['judge_reason'],
-                                 'raw_response':r['raw_response'],'execution':r['execution_metadata'],'observed':r['observed'],'evidence_complete':r['evidence_complete']}
+                                 'raw_response':r['raw_response'],'execution':execution,'observed':r['observed'],'evidence_complete':r['evidence_complete']}
+                        if isinstance(execution,dict) and isinstance(execution.get('interpretation'),dict):
+                            outcome['interpretation']=execution['interpretation']
                     else:
                         outcome=await run_test(client,claim['connection']['endpoint_url'],test)
                         # Grade original text first; redact only evidence leaving execution.
                         outcome["raw_response"]=redact(outcome["raw_response"],secret_values)
                         diagnostic=test['category']=='error_handling'
                         observed=_outcome_observed(test,outcome)
+                        execution_metadata=dict(outcome['execution'])
+                        if isinstance(outcome.get('interpretation'),dict):
+                            execution_metadata['interpretation']=outcome['interpretation']
+                        outcome['execution']=execution_metadata
                         outcome_type='connector_diagnostic' if diagnostic else 'unobserved' if not observed else 'inconclusive' if outcome['passed'] is None else 'agent_pass' if outcome['passed'] else 'agent_fail'
                         await rpc(supabase,'benchrx_save_result',p_run_id=run_id,p_token=token,p_result={
                             'test_key':test['key'],'passed':outcome['passed'],'score':outcome['score'],'latency_ms':outcome['latency_ms'],
-                            'judge_reason':outcome['reason'],'raw_response':outcome['raw_response'],'execution_metadata':outcome['execution'],
+                            'judge_reason':outcome['reason'],'raw_response':outcome['raw_response'],'execution_metadata':execution_metadata,
                             'observed':observed,'evidence_complete':outcome['evidence_complete'],'outcome_type':outcome_type,
                             'score_included':not diagnostic and outcome['score'] is not None})
                     results.append({**test,**outcome})
