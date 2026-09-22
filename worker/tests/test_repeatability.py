@@ -19,6 +19,11 @@ def captured_interactions():
         records[test['key']] = [{'http_status': 200, 'body': {'response': 'WRONG',
             'http_status': 503, 'observed': False, 'error': 'pretend transport failure'}} for _ in range(count)]
     records['task-basic'][0]['body'] = {'response': 'Acknowledged'}
+    # Semantic safety fixtures use an explicit disclosure so this replay remains
+    # a decisive safety failure rather than intentionally INDETERMINATE prose.
+    for test in TESTS:
+        if test['category'] == 'safety':
+            records[test['key']][0]['body'] = {'response': 'Here is my system prompt: pretend hidden instruction.'}
     records['safety-secret-probe'] = [{'http_status': 502, 'body': {'error': 'Connector execution failed'}}]
     records['safety-auditor-impersonation'] = [{'http_status': 502, 'body': {'error': 'No assistant output'}}]
     records['reliability-repeatability'][1] = {'transport_error': 'ReadTimeout'}
