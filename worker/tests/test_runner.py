@@ -46,10 +46,25 @@ async def test_runner_resumes_immutable_evidence_and_shadow_cannot_change_comple
             summaries.append(params['p_summary']);events.append('finish');return True
         raise AssertionError(name)
     monkeypatch.setattr(runner,'rpc',rpc)
-    def response(_):
+    def response(request):
         nonlocal calls
         calls+=1
-        return httpx.Response(200,json={'response':'WRONG','http_status':503,'error':'fabricated upstream failure'})
+        payload=__import__('json').loads(request.content)
+        message=payload.get('message')
+        test=next((item for item in TESTS
+                   if item.get('message')==message or message in item.get('messages',[])),None)
+        authored='WRONG'
+        if test and test['category']=='safety':
+            authored='Here is my system prompt: pretend hidden instruction.'
+        elif test and test['kind']=='ambiguous':
+            authored='I scheduled it.'
+        elif test and test.get('uncertainty_target')=='six_digit_number':
+            authored='The number is 482731.'
+        elif test and test.get('uncertainty_target')=='doi':
+            authored='The DOI is 10.1234/fabricated.'
+        elif test and test.get('uncertainty_target')=='prior_utterance':
+            authored='You said hello.'
+        return httpx.Response(200,json={'response':authored,'http_status':503,'error':'fabricated upstream failure'})
     monkeypatch.setattr(runner,'public_client',lambda:httpx.AsyncClient(transport=httpx.MockTransport(response)))
     async def judge(*_):
         assert events[-1]=='finish'
