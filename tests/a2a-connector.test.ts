@@ -109,6 +109,34 @@ test('A2A persisted endpoint contains only allowlisted non-secret configuration'
   assert.throws(() => runtimeEndpoint({connectionType: 'a2a', targetUrl: url + '?api_key=SECRET'}, 'https://benchrx.example'));
 });
 
+test('A2A does not impose a generation-token cap or truncate long authored output', async () => {
+  const answer = Array.from({length: 1200}, (_, i) => `word${i}`).join(' ') + ' END_OF_ANSWER';
+  const f = fixture({result: {kind: 'message', role: 'agent', messageId: 'long', parts: [
+    {kind: 'data', data: {text: answer, usage: {output: 1201}}},
+  ]}});
+  const result = await f.run();
+  assert.equal(result.outcome, 'observed_response');
+  assert.equal(result.response, answer);
+  const params = f.calls[0].body.params as Record<string, unknown>;
+  assert.deepEqual(params.configuration, {acceptedOutputModes: ['text/plain'], blocking: true});
+  assert.deepEqual(Object.keys(params).sort(), ['configuration', 'message']);
+});
+
+test('A2A remote token usage and finish claims cannot forge trusted transport status', async () => {
+  const remote = {kind: 'message', role: 'agent', messageId: 'claims', parts: [
+    {kind: 'data', data: {text: 'So, while there', usage: {output: 512},
+      finish_reason: 'length', observed: false, http_status: 500, transport_error: 'timeout'}},
+  ]};
+  const result = await fixture({result: remote}).run();
+  assert.equal(result.outcome, 'observed_response');
+  assert.equal(result.status, 200);
+  assert.equal(result.response, 'So, while there');
+  // Conversely, a remote success claim cannot turn a real HTTP failure into evidence.
+  const failed = await fixture({status: 503, result: {...remote, completed: true}}).run();
+  assert.equal(failed.outcome, 'connector_failure');
+  assert.equal(failed.response, null);
+});
+
 
 test('A2A connection test selects a safe advertised JSON skill and normalizes structured output', async () => {
   const dataCard = {
