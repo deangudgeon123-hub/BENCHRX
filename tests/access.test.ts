@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {requireOperator,requireAdapter,readBoundedJson} from '../lib/server/access.ts';
+import {requireOperator,requireSameOrigin,requireAdapter,readBoundedJson} from '../lib/server/access.ts';
 test('operator and adapter authentication fail closed and remain separately scoped',()=>{
  process.env.BENCHRX_ADMIN_TOKEN='a'.repeat(32);process.env.BENCHRX_ADAPTER_SECRET='b'.repeat(32);
  const auth='Basic '+Buffer.from('benchrx:'+process.env.BENCHRX_ADMIN_TOKEN).toString('base64');
@@ -11,6 +11,12 @@ test('operator and adapter authentication fail closed and remain separately scop
  assert.equal(requireAdapter(new Request('https://benchrx.example/api',{headers:{Authorization:'Bearer '+'b'.repeat(32)}})),null);
  delete process.env.BENCHRX_ADMIN_TOKEN;delete process.env.BENCHRX_ADAPTER_SECRET;
  assert.equal(requireAdapter(new Request('https://benchrx.example/api'))?.status,401);
+});
+
+test('scorecard reruns require a browser request from the same origin',()=>{
+ assert.equal(requireSameOrigin(new Request('https://benchrx.example/api',{headers:{Origin:'https://benchrx.example'}})),null);
+ assert.equal(requireSameOrigin(new Request('https://benchrx.example/api',{headers:{Origin:'https://evil.example'}}))?.status,403);
+ assert.equal(requireSameOrigin(new Request('https://benchrx.example/api'))?.status,403);
 });
 test('body bound is enforced while reading, without trusting Content-Length',async()=>{
  await assert.rejects(readBoundedJson(new Request('https://example.com',{method:'POST',body:JSON.stringify({message:'x'.repeat(100)})}),32));

@@ -15,6 +15,10 @@ export function requireOperator(request: Request): Response | null {
   if (origin && origin!==new URL(request.url).origin) return new Response('Forbidden',{status:403});
   return null;
 }
+export function requireSameOrigin(request: Request): Response | null {
+  const origin=request.headers.get('origin');
+  return origin===new URL(request.url).origin ? null : new Response('Forbidden',{status:403});
+}
 export function requireAdapter(request: Request): Response | null {
   return secretMatches(request.headers.get('authorization'),process.env.BENCHRX_ADAPTER_SECRET ? `Bearer ${process.env.BENCHRX_ADAPTER_SECRET}`:undefined) && (process.env.BENCHRX_ADAPTER_SECRET?.length ?? 0)>=32 ? null : new Response('Unauthorized',{status:401});
 }

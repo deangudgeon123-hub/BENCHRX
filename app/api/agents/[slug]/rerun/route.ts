@@ -1,4 +1,4 @@
-import { requireOperator, readBoundedJson, appOrigin } from "@/lib/server/access";
+import { requireSameOrigin } from "@/lib/server/access";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -46,7 +46,7 @@ type RouteContext = {
 };
 
 export async function POST(request: Request, { params }: RouteContext) {
-  const denied = requireOperator(request);
+  const denied = requireSameOrigin(request);
   if (denied) return denied;
   try {
     const { slug } = await params;
