@@ -15,3 +15,11 @@ export function readinessLabel(run: VersionedRun, score: number | null): string 
   if (run.readiness_status === 'meets_structured_capability_gates') return 'A2A compatibility passed';
   return 'Needs review';
 }
+
+export function diagnosticSummary(results: {passed: boolean | null}[]): string {
+  const evaluated = results.filter(result => result.passed !== null);
+  const passed = evaluated.filter(result => result.passed === true).length;
+  const unevaluated = results.length - evaluated.length;
+  if (!evaluated.length) return 'Not evaluated';
+  return `${passed}/${evaluated.length} passed${unevaluated ? ` · ${unevaluated} not evaluated` : ''}`;
+}

@@ -1,5 +1,5 @@
 import "server-only";
-import { comparableRuns, readinessLabel } from "@/lib/measurement-view";
+import { comparableRuns, diagnosticSummary, readinessLabel } from "@/lib/measurement-view";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
@@ -208,7 +208,6 @@ export default async function AgentScorecardPage({ params }: PageProps) {
   const diagnosticResults = results.filter(isConnectorDiagnostic);
   const passedCount = observedResults.filter((result) => result.passed).length;
   const failedCount = observedResults.length - passedCount;
-  const diagnosticPassedCount = diagnosticResults.filter((result) => result.passed).length;
   const taskCoverage = run?.coverage?.task_success ?? categoryCoverage(results, "task_success");
   const reliabilityCoverage = run?.coverage?.reliability ?? categoryCoverage(results, "reliability");
   const safetyCoverage = run?.coverage?.safety ?? categoryCoverage(results, "safety");
@@ -337,9 +336,9 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                       <div className="flex items-center justify-between gap-4">
                         <div>
                           <p className="text-sm font-semibold text-white">Connector diagnostics</p>
-                          <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Connector contract checks. Excluded under the current scoring policy; legacy runs retain their recorded policy.</p>
+                          <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Connector contract checks. Excluded under the current scoring policy; legacy runs retain their recorded policy. Checks without a verdict were not applicable or could not be evaluated.</p>
                         </div>
-                        <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-black text-[var(--muted)]">{diagnosticPassedCount}/{diagnosticResults.length} passed</span>
+                        <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-black text-[var(--muted)]">{diagnosticSummary(diagnosticResults)}</span>
                       </div>
                     </div>
                   ) : !a2aCompatibility ? (
@@ -435,7 +434,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                           <div className="flex flex-wrap items-center gap-2">
                             <p className="font-black text-white">{testCase?.title ?? "BENCHRX test"}</p>
                             {diagnostic ? (
-                              <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-[var(--muted)]">Connector diagnostic</span>
+                              <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-[var(--muted)]">{result.passed === null ? "Diagnostic not evaluated" : "Connector diagnostic"}</span>
                             ) : unobserved ? (
                               <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-amber-200">Unobserved</span>
                             ) : (
@@ -446,7 +445,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                             {testCase?.category ? <span className="rounded-full bg-white/5 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">{prettyCategory(testCase.category)}</span> : null}
                           </div>
                           <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{result.judge_reason ?? testCase?.description ?? "Benchmark check completed."}</p>
-                          {diagnostic ? <p className="mt-1 text-xs font-semibold text-[var(--muted)]">This result describes the BENCHRX-managed connector contract and is not included in the agent production score.</p> : null}
+                          {diagnostic ? <p className="mt-1 text-xs font-semibold text-[var(--muted)]">{result.passed === null ? "This connector check was not applicable or could not be evaluated. It is neither a pass nor a failure and is excluded from the agent production score." : "This result describes the BENCHRX-managed connector contract and is not included in the agent production score."}</p> : null}
                           {unobserved ? <p className="mt-1 text-xs font-semibold text-amber-200/80">BENCHRX did not receive observable agent behaviour, so this result is not treated as a behavioural failure.</p> : null}
                         </div>
                       </div>

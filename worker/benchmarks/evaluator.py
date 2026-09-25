@@ -535,6 +535,16 @@ async def _run_structured_a2a_test(client: httpx.AsyncClient,endpoint_url: str,t
 
 async def run_test(client: httpx.AsyncClient, endpoint_url: str, test: dict[str, Any]) -> dict[str, Any]:
     kind = test['kind']
+    if kind == 'malformed' and test['category'] == 'error_handling' and is_trusted_a2a_adapter(endpoint_url):
+        # These probes mutate BENCHRX's native message envelope, not an A2A
+        # request. Missing input is rejected locally; JSON data (including objects)
+        # can be valid A2A input. Neither establishes agent-side input validation.
+        # Applicability is decided locally, never from a remote diagnostic flag.
+        return {'passed': None, 'score': None, 'latency_ms': 0,
+                'reason': 'Not applicable: native message-envelope validation does not measure A2A agent input validation.',
+                'raw_response': {}, 'execution': {'attempts': [], 'diagnostic': {
+                    'applicable': False, 'reason_code': 'native_envelope_not_a2a_contract'}},
+                'observed': False, 'evidence_complete': False}
     if kind.startswith('a2a_structured_'):
         return await _run_structured_a2a_test(client, endpoint_url, test)
     messages = test.get('messages', []) if kind == 'paired_exact' else [test.get('message')]

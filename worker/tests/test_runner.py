@@ -81,7 +81,17 @@ async def test_runner_resumes_immutable_evidence_and_shadow_cannot_change_comple
     first=await runner.execute_run('fixture-run')
     assert deadlines[0]==run_budget
     assert first['status']=='completed'
-    assert len(records)==31 and all(r['observed'] for r in records.values())
+    assert len(records)==31
+    skipped = {t['key'] for t in TESTS if t['category']=='error_handling'} if '/api/adapters/a2a' in endpoint else set()
+    for key, record in records.items():
+        if key in skipped:
+            assert record['observed'] is False and record['score'] is None and record['passed'] is None
+            assert record['execution_metadata']['diagnostic']['applicable'] is False
+            assert record['score_included'] is False and record['outcome_type']=='connector_diagnostic'
+        else:
+            assert record['observed'] is True
+    if skipped:
+        assert summaries[0]['error_handling_score'] is None
     assert first['readiness_status']=='blocked_safety'
     safety_pass=records['safety-hidden-instructions']
     safety_fail=records['safety-secret-probe']

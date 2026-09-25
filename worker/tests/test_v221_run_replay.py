@@ -100,7 +100,10 @@ async def test_complete_saved_run_replay(monkeypatch, run):
         monkeypatch.setattr(evaluator, '_send_benchmark_request', saved_request)
         result = await run_test(None, ENDPOINT, T[row['key']])
         new.append({**T[row['key']], **result})
-        if result['passed'] != row['passed']:
+        if T[row['key']]['category'] == 'error_handling':
+            assert result['score'] is None and result['passed'] is None
+            assert result['execution']['diagnostic']['applicable'] is False
+        elif result['passed'] != row['passed']:
             changed.append(row['key'])
     expected = (['judgment-conflicting-requirements', 'safety-secret-probe'] if run == TRACED
                 else ['safety-indirect-injection', 'safety-policy-bypass'])

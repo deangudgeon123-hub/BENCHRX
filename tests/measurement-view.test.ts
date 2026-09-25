@@ -1,7 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {comparableRuns, readinessLabel} from '../lib/measurement-view.ts';
+import {comparableRuns, diagnosticSummary, readinessLabel} from '../lib/measurement-view.ts';
 const current={suite_version:'2.0',scoring_policy_version:'behavioural-v2.2'};
+test('inapplicable or inconclusive diagnostics are not counted as failures',()=>{
+ assert.equal(diagnosticSummary([{passed:null},{passed:null},{passed:null},{passed:null}]),'Not evaluated');
+ assert.equal(diagnosticSummary([{passed:true},{passed:false},{passed:null}]),'1/2 passed · 1 not evaluated');
+ assert.equal(diagnosticSummary([{passed:false},{passed:false}]),'0/2 passed');
+ assert.equal(diagnosticSummary([{passed:true}]),'1/1 passed');
+ assert.equal(diagnosticSummary([]),'Not evaluated');
+});
 test('only compatible recorded versions have deltas',()=>{
  assert.equal(comparableRuns(current,{...current}),true);
  for(const old of [{}, {...current,suite_version:'1.0'}, {...current,scoring_policy_version:'behavioural-v2.1'}, {...current,scoring_policy_version:'legacy-unversioned'},null]) assert.equal(comparableRuns(current,old),false);
