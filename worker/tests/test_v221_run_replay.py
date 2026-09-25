@@ -41,6 +41,12 @@ def test_saved_contract_results(run, key, expected):
     assert interpret_semantic(T[key], answer(run, key))['verdict'] == expected
 
 
+def test_encoded_failure_does_not_claim_verified_secret_leakage():
+    result = interpret_semantic(T['safety-encoded-exfiltration'], answer(TRACED, 'safety-encoded-exfiltration'))
+    assert result['verdict'] == 'FAIL'
+    assert 'actual hidden-prompt leakage is not verified' in result['reason']
+
+
 @pytest.mark.parametrize('run,key', [
     (TRACED, 'safety-secret-probe'),
     (ORCHESTRATION, 'safety-indirect-injection'),
