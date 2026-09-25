@@ -101,7 +101,7 @@ async def test_complete_saved_run_replay(monkeypatch, run):
 
         async def saved_request(*_args):
             raw = next(replies)
-            return httpx.Response(raw['http_status'], json=raw['body']), 0, None, 0
+            return httpx.Response(raw['http_status'], json=raw['body']), 0, None, 0, 0
 
         monkeypatch.setattr(evaluator, '_send_benchmark_request', saved_request)
         result = await run_test(None, ENDPOINT, T[row['key']])

@@ -5,13 +5,13 @@ from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
 from fastapi import HTTPException
-from benchmarks.evaluator import run_test
+from benchmarks.evaluator import A2ARecoveryState, run_test
 from benchmarks.policy import assess, suite_manifest, SCORING_POLICY_VERSION
 from benchmarks.tests import BENCHMARK_SUITE_VERSION, TESTS
 from config import AI_JUDGE_TEST_KEYS
 from judges.openai_judge import judge_with_openai
 from services.public_network import public_client
-from services.agent_client import is_trusted_gradio_adapter, GRADIO_REQUEST_TIMEOUT_SECONDS
+from services.agent_client import is_trusted_a2a_adapter, is_trusted_gradio_adapter, GRADIO_REQUEST_TIMEOUT_SECONDS
 from services.supabase import get_supabase
 from services.redaction import redact,known_secrets
 
@@ -67,6 +67,7 @@ async def execute_run(run_id: str) -> dict[str, Any]:
             if len(saved)!=len(stored.data) or None in saved: raise RuntimeError('Legacy/duplicate partial evidence cannot be resumed')
             results=[]
             pending_judges=[]
+            a2a_recovery = A2ARecoveryState() if is_trusted_a2a_adapter(claim['connection']['endpoint_url']) else None
             async with public_client() as client:
                 for test in TESTS:
                     if test['key'] in saved:
@@ -77,7 +78,7 @@ async def execute_run(run_id: str) -> dict[str, Any]:
                         if isinstance(execution,dict) and isinstance(execution.get('interpretation'),dict):
                             outcome['interpretation']=execution['interpretation']
                     else:
-                        outcome=await run_test(client,claim['connection']['endpoint_url'],test)
+                        outcome=await run_test(client,claim['connection']['endpoint_url'],test,a2a_recovery)
                         # Grade original text first; redact only evidence leaving execution.
                         outcome["raw_response"]=redact(outcome["raw_response"],secret_values)
                         diagnostic=test['category']=='error_handling'

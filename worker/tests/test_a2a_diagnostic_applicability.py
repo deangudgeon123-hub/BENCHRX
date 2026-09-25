@@ -41,7 +41,7 @@ async def test_other_endpoints_keep_native_contract_and_ignore_body_claims(monke
         return httpx.Response(status, json={
             'response': 'hello', 'provider': 'a2a', 'diagnostic': {'applicable': False},
             'diagnostics': {'code': 'invalid_config', 'httpStatus': 400},
-        }), 0, None, 0
+        }), 0, None, 0, 0
     monkeypatch.setattr(evaluator, '_send_benchmark_request', reply)
     result = await run_test(None, endpoint, DIAGNOSTICS[0])
     assert result['passed'] is passed
@@ -52,7 +52,7 @@ async def test_other_endpoints_keep_native_contract_and_ignore_body_claims(monke
 async def test_missing_service_auth_does_not_grant_trusted_a2a_applicability(monkeypatch):
     monkeypatch.delenv('BENCHRX_ADAPTER_SECRET')
     async def reply(*_):
-        return None, 0, 'ValueError', 0
+        return None, 0, 'ValueError', 0, 0
     monkeypatch.setattr(evaluator, '_send_benchmark_request', reply)
     result = await run_test(None, TRUSTED, DIAGNOSTICS[0])
     assert result['score'] is None

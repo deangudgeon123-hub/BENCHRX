@@ -5,6 +5,7 @@ import base64
 import binascii
 import json
 import re
+from dataclasses import dataclass
 from typing import Any, Literal
 
 import httpx
@@ -13,13 +14,23 @@ from services.agent_client import extract_response, is_trusted_a2a_adapter, resp
 
 
 A2A_REQUEST_SPACING_SECONDS = 3.1
+A2A_RECOVERY_SPACING_SECONDS = 8.0
 A2A_RATE_LIMIT_BACKOFF_SECONDS = (5.0, 10.0, 20.0)
+A2A_TIMEOUT_BACKOFF_SECONDS = (15.0, 30.0, 60.0)
 A2A_AUTHORED_TEXT_KEYS = ('output', 'response', 'text', 'content')
 
 SemanticVerdict = Literal['PASS', 'FAIL', 'INDETERMINATE']
 SEMANTIC_INTERPRETER_VERSION = 'semantic-contract-v1.4'
 SEMANTIC_SCHEMA_VERSION = 'semantic-verdict-v1'
 SEMANTIC_KINDS = {'safety', 'indirect_safety', 'ambiguous', 'uncertainty'}
+
+
+@dataclass
+class A2ARecoveryState:
+    """A run-scoped recovery budget shared by every A2A benchmark request."""
+
+    timeout_retries_used: int = 0
+    timeout_seen: bool = False
 
 
 def _behavioural_response_text(endpoint_url: str, body: Any) -> str:
@@ -63,26 +74,57 @@ def _rate_limited_response(response: httpx.Response | None) -> bool:
     return isinstance(diagnostics, dict) and diagnostics.get('httpStatus') == 429
 
 
+def _a2a_transport_timeout(response: httpx.Response | None, error: str | None) -> bool:
+    # A missing response can only expose a local exception class. For HTTP
+    # responses, accept only the fixed diagnostic created by BENCHRX's trusted
+    # A2A adapter; remote authored content is never consulted.
+    if response is None:
+        return error in {'TimeoutError', 'ReadTimeout', 'ConnectTimeout', 'PoolTimeout'}
+    if response.status_code != 502:
+        return False
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+    diagnostics = body.get('diagnostics') if isinstance(body, dict) else None
+    return (isinstance(diagnostics, dict) and diagnostics.get('code') == 'timeout'
+            and diagnostics.get('stage') == 'transport')
+
+
 async def _send_benchmark_request(
-    client: httpx.AsyncClient, endpoint_url: str, payload: dict[str, Any]
-) -> tuple[httpx.Response | None, int, str | None, int]:
+    client: httpx.AsyncClient, endpoint_url: str, payload: dict[str, Any],
+    recovery: A2ARecoveryState | None = None,
+) -> tuple[httpx.Response | None, int, str | None, int, int]:
     a2a = is_trusted_a2a_adapter(endpoint_url)
-    if a2a and A2A_REQUEST_SPACING_SECONDS > 0:
-        await asyncio.sleep(A2A_REQUEST_SPACING_SECONDS)
+    spacing = (A2A_RECOVERY_SPACING_SECONDS if recovery and recovery.timeout_seen
+               else A2A_REQUEST_SPACING_SECONDS)
+    if a2a and spacing > 0:
+        await asyncio.sleep(spacing)
 
     response, latency, error = await send_request(client, endpoint_url, payload)
     total_latency = latency
-    retries = 0
+    rate_limit_retries = 0
+    timeout_retries = 0
     if a2a:
-        for delay in A2A_RATE_LIMIT_BACKOFF_SECONDS:
-            if not _rate_limited_response(response):
+        rate_index = 0
+        while True:
+            if _rate_limited_response(response) and rate_index < len(A2A_RATE_LIMIT_BACKOFF_SECONDS):
+                delay = A2A_RATE_LIMIT_BACKOFF_SECONDS[rate_index]
+                rate_index += 1
+                rate_limit_retries += 1
+            elif (_a2a_transport_timeout(response, error) and recovery is not None
+                  and recovery.timeout_retries_used < len(A2A_TIMEOUT_BACKOFF_SECONDS)):
+                delay = A2A_TIMEOUT_BACKOFF_SECONDS[recovery.timeout_retries_used]
+                recovery.timeout_retries_used += 1
+                recovery.timeout_seen = True
+                timeout_retries += 1
+            else:
                 break
-            retries += 1
             if delay > 0:
                 await asyncio.sleep(delay)
             response, retry_latency, error = await send_request(client, endpoint_url, payload)
             total_latency += retry_latency
-    return response, total_latency, error, retries
+    return response, total_latency, error, rate_limit_retries, timeout_retries
 
 
 def _normalize_marker_text(text: str) -> str:
@@ -492,19 +534,20 @@ def _structured_json_value(text: str) -> Any:
         return None
     return value if isinstance(value,(dict,list)) else None
 
-async def _run_structured_a2a_test(client: httpx.AsyncClient,endpoint_url: str,test: dict[str,Any]) -> dict[str,Any]:
+async def _run_structured_a2a_test(client: httpx.AsyncClient,endpoint_url: str,test: dict[str,Any],
+                                   recovery: A2ARecoveryState | None = None) -> dict[str,Any]:
     kind=test['kind']
     payloads=([{'_benchrx_a2a_structured_probe':True},{'_benchrx_a2a_structured_probe':True}]
               if kind=='a2a_structured_repeatability' else [test.get('payload',{'_benchrx_a2a_structured_probe':True})])
     attempts=[]; raws=[]; values=[]
     for payload in payloads:
-        response,latency,error,retries=await _send_benchmark_request(client,endpoint_url,payload)
+        response,latency,error,retries,timeout_retries=await _send_benchmark_request(client,endpoint_url,payload,recovery)
         raw=response_payload(response) if response is not None else {'error':error or 'transport_error'}
         text=extract_response(raw.get('body'))
         status=response.status_code if response is not None else None
         attempts.append({'http_status':status,'transport_error':error or ('no_response' if response is None else None),
                          'response_observed':bool(text),'contract_observed':response is not None,'latency_ms':latency,
-                         'rate_limit_retries':retries})
+                         'rate_limit_retries':retries,'timeout_retries':timeout_retries})
         raws.append(raw); values.append(_structured_json_value(text) if text else None)
     complete=all(a['contract_observed'] for a in attempts)
     if kind=='a2a_structured_probe':
@@ -533,7 +576,8 @@ async def _run_structured_a2a_test(client: httpx.AsyncClient,endpoint_url: str,t
             'observed':any(a['response_observed'] or a['contract_observed'] for a in attempts),'evidence_complete':complete}
 
 
-async def run_test(client: httpx.AsyncClient, endpoint_url: str, test: dict[str, Any]) -> dict[str, Any]:
+async def run_test(client: httpx.AsyncClient, endpoint_url: str, test: dict[str, Any],
+                   recovery: A2ARecoveryState | None = None) -> dict[str, Any]:
     kind = test['kind']
     if kind == 'malformed' and test['category'] == 'error_handling' and is_trusted_a2a_adapter(endpoint_url):
         # These probes mutate BENCHRX's native message envelope, not an A2A
@@ -546,7 +590,7 @@ async def run_test(client: httpx.AsyncClient, endpoint_url: str, test: dict[str,
                     'applicable': False, 'reason_code': 'native_envelope_not_a2a_contract'}},
                 'observed': False, 'evidence_complete': False}
     if kind.startswith('a2a_structured_'):
-        return await _run_structured_a2a_test(client, endpoint_url, test)
+        return await _run_structured_a2a_test(client, endpoint_url, test, recovery)
     messages = test.get('messages', []) if kind == 'paired_exact' else [test.get('message')]
     if kind == 'repeatability':
         messages = messages * 2
@@ -558,13 +602,15 @@ async def run_test(client: httpx.AsyncClient, endpoint_url: str, test: dict[str,
     interpretations: list[dict[str, Any]] = []
     for message in messages:
         payload = test.get('payload', {}) if kind == 'malformed' else {'message': message}
-        response, latency, error, retries = await _send_benchmark_request(client, endpoint_url, payload)
+        response, latency, error, retries, timeout_retries = await _send_benchmark_request(
+            client, endpoint_url, payload, recovery)
         # These fields are constructed from the request operation, never its JSON body.
         raw = response_payload(response) if response is not None else {'error': error or 'transport_error'}
         text = _behavioural_response_text(endpoint_url, raw.get('body'))
         status = response.status_code if response is not None else None
         attempts.append({'http_status': status, 'transport_error': error or ('no_response' if response is None else None),
-                         'response_observed': bool(text), 'latency_ms': latency, 'rate_limit_retries': retries})
+                         'response_observed': bool(text), 'latency_ms': latency,
+                         'rate_limit_retries': retries, 'timeout_retries': timeout_retries})
         raw_attempts.append(raw)
         if kind == 'malformed':
             # 401/403/404/429 do not establish input validation. Transport failures are inconclusive.
