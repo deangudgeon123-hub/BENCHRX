@@ -56,6 +56,22 @@ Start the worker from the repository root with:
 python -m uvicorn main:app --app-dir worker --host 0.0.0.0 --port 8000
 ```
 
+Production benchmark execution should use a dedicated long-running worker, not
+an asynchronous task attached only to a free web-service instance. Start the
+queue process from the repository root with:
+
+```sh
+python worker/queue_worker.py
+```
+
+Give that process the same Supabase, adapter and judge environment as the web
+service. Set `BENCHRX_POLL_QUEUE=0` on the web service so the dedicated process
+is the normal dispatcher. The database claim and lease fencing remain the final
+duplicate-execution guard during deployment overlap or recovery. Render's free
+web service can retain the web fallback for development, but it is not a
+reliable host for an uninterrupted long-running benchmark because it can sleep
+after an idle interval.
+
 For local frontend development, run `npm run dev`. Native endpoint tests require public HTTPS endpoints on port 443. Adapter end-to-end testing requires an HTTPS preview/tunnel with matching configured origins; localhost targets are intentionally rejected by benchmark execution.
 
 Visit `/operator`. The browser login username is `benchrx`; the password is your `BENCHRX_ADMIN_TOKEN`. This is temporary operator-only containment, not customer authentication or tenancy. Then use `/benchmark` and `/admin`. Anonymous submissions, reruns, connection tests and adapter execution are denied.
