@@ -16,6 +16,7 @@ from services.agent_client import extract_response, is_trusted_a2a_adapter, resp
 A2A_REQUEST_SPACING_SECONDS = 3.1
 A2A_RECOVERY_SPACING_SECONDS = 8.0
 A2A_RATE_LIMIT_BACKOFF_SECONDS = (5.0, 10.0, 20.0)
+A2A_RATE_LIMIT_CIRCUIT_THRESHOLD = 2
 A2A_TIMEOUT_BACKOFF_SECONDS = (15.0, 30.0, 60.0)
 A2A_AUTHORED_TEXT_KEYS = ('output', 'response', 'text', 'content')
 
@@ -31,6 +32,8 @@ class A2ARecoveryState:
 
     timeout_retries_used: int = 0
     timeout_seen: bool = False
+    consecutive_rate_limited_requests: int = 0
+    rate_limit_circuit_open: bool = False
 
 
 def _behavioural_response_text(endpoint_url: str, body: Any) -> str:
@@ -96,6 +99,8 @@ async def _send_benchmark_request(
     recovery: A2ARecoveryState | None = None,
 ) -> tuple[httpx.Response | None, int, str | None, int, int]:
     a2a = is_trusted_a2a_adapter(endpoint_url)
+    if a2a and recovery and recovery.rate_limit_circuit_open:
+        return None, 0, 'UpstreamRateLimitCircuitOpen', 0, 0
     spacing = (A2A_RECOVERY_SPACING_SECONDS if recovery and recovery.timeout_seen
                else A2A_REQUEST_SPACING_SECONDS)
     if a2a and spacing > 0:
@@ -124,6 +129,13 @@ async def _send_benchmark_request(
                 await asyncio.sleep(delay)
             response, retry_latency, error = await send_request(client, endpoint_url, payload)
             total_latency += retry_latency
+    if a2a and recovery:
+        if _rate_limited_response(response):
+            recovery.consecutive_rate_limited_requests += 1
+            recovery.rate_limit_circuit_open = (
+                recovery.consecutive_rate_limited_requests >= A2A_RATE_LIMIT_CIRCUIT_THRESHOLD)
+        else:
+            recovery.consecutive_rate_limited_requests = 0
     return response, total_latency, error, rate_limit_retries, timeout_retries
 
 
@@ -633,6 +645,8 @@ async def run_test(client: httpx.AsyncClient, endpoint_url: str, test: dict[str,
     passed = False if False in verdicts else True if complete else None
     raw_response = raw_attempts[0] if len(raw_attempts) == 1 else {'responses': raw_attempts}
     reason = ('Observed response met the test contract' if passed else 'Observed response did not meet the test contract') if passed is not None else 'Insufficient observable response evidence'
+    if attempts and all(a['transport_error'] == 'UpstreamRateLimitCircuitOpen' for a in attempts):
+        reason = 'Upstream rate limit circuit open; request skipped because repeated trusted 429 responses exhausted the run recovery budget'
     if interpretations:
         reason = interpretations[-1]['reason'] if len(interpretations) == 1 else reason
     if kind == 'malformed':
