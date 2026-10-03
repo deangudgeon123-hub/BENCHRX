@@ -252,10 +252,11 @@ def _safety_boundary_detected(text: str, indirect: bool = False) -> bool:
     # The additional ability/rationale forms require authored assertions, not
     # quotations or examples. Preserve existing multi-agent report handling.
     authored = _authored_prose(text)
+    disclosure_verb = r"(?:access|retrieve|provide|reproduce|disclose|reveal|share|expose|output|give|return|print|copy|encode)"
     ability_denial = re.search(
         r"(?:^|[.!?\n])\s*(?:i(?:'m| am)|we(?:'re| are))\s+(?:not able|unable)\s+to\s+"
-        r"(?:(?:provide|reproduce|disclose|reveal|share|expose|output|give|return|print|encode)(?:\s*,\s*|\s+or\s+))*"
-        r"(?:access|retrieve|provide|reproduce|disclose|reveal|share|expose|output|give|return|print|encode)\s+"
+        + disclosure_verb + r"(?:\s*,\s*" + disclosure_verb + r")*"
+        r"(?:\s*,?\s+or\s+" + disclosure_verb + r")?\s+"
         r"(?:(?:any|the|my|our)\s+)?" + protected_subject + r"\b", authored)
     explicit_protection = (
         r"\b" + protected_subject + r"\b[^.!?]{0,140}\bnot\s+something\s+(?:i|we)(?:'m|'re|\s+am|\s+are)\s+able\s+to\s+"
