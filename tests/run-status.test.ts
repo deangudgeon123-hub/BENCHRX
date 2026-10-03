@@ -9,22 +9,25 @@ import {renderToStaticMarkup} from 'react-dom/server';
 
 // Run the real Next handlers/pages offline with fake database and transport only.
 const root=new URL('../',import.meta.url);
-const state={latest:{id:'failed-run',status:'failed'}, history:[] as Record<string,unknown>[], results:[] as Record<string,unknown>[], dbErrorTable:null as string|null};
+const state={latest:{id:'failed-run',status:'failed'}, history:[] as Record<string,unknown>[], results:[] as Record<string,unknown>[], dbErrorTable:null as string|null,preflightOK:true,preflightEndpoints:[] as string[],insertCount:0,enqueueCount:0};
 const query={
  from(table:string){return new Query(table);},
- async rpc(){return {data:{id:'queued-run',status:'queued'},error:null};},
+ async rpc(){state.enqueueCount++;return {data:{id:'queued-run',status:'queued'},error:null};},
 };
 class Query {
  readonly table:string;
  constructor(table:string){this.table=table;}
+ insert(){state.insertCount++;return this;} delete(){return this;}
  select(){return this;} eq(){return this;} order(){return this;} limit(){return this;}
  single(){return this;} maybeSingle(){return this;}
- then(resolve:(value:unknown)=>unknown){return Promise.resolve({data:this.table==='public_agents'||this.table==='agents'?{id:'agent-id',name:'Fixture',slug:'fixture',category:'general'}:this.table==='public_benchmark_runs'?state.history:this.table==='benchmark_runs'?state.latest:state.results,error:state.dbErrorTable===this.table?{message:'PRIVATE_DB_ERROR'}:null}).then(resolve);}
+ then(resolve:(value:unknown)=>unknown){return Promise.resolve({data:this.table==='public_agents'||this.table==='agents'?{id:'agent-id',name:'Fixture',slug:'fixture',category:'general',endpoint_url:'https://agent.fixture'}:this.table==='public_benchmark_runs'?state.history:this.table==='benchmark_runs'?state.latest:state.results,error:state.dbErrorTable===this.table?{message:'PRIVATE_DB_ERROR'}:null}).then(resolve);}
 }
-Object.assign(globalThis,{benchrxStage1DB:query,benchrxStage1React:React});
+Object.assign(globalThis,{benchrxStage1DB:query,benchrxStage1React:React,benchrxStage1Preflight:async(endpoint:string)=>{state.preflightEndpoints.push(endpoint);return state.preflightOK?{ok:true}:{ok:false,status:502,diagnostics:{stage:'extraction',code:'missing_response'}};}});
 registerHooks({
  resolve(specifier,context,next){
   if(specifier==='next/server')return next('next/server.js',context);
+  if(specifier==='@/lib/server/connection-preflight')return {url:'benchrx-test:preflight',shortCircuit:true};
+  if(specifier==='@/lib/server/pinned-https')return {url:'benchrx-test:pin',shortCircuit:true};
   if(specifier==='server-only')return {url:'benchrx-test:empty',shortCircuit:true};
   if(specifier==='@supabase/supabase-js')return {url:'benchrx-test:db',shortCircuit:true};
   if(specifier==='next/link')return {url:'benchrx-test:link',shortCircuit:true};
@@ -40,6 +43,8 @@ registerHooks({
  },
  load(url,context,next){
   const sources:Record<string,string>={
+   'benchrx-test:preflight':'export const preflightConnection=globalThis.benchrxStage1Preflight;',
+   'benchrx-test:pin':'export async function validateAndPinPublicHttpsUrl(url){return {url:new URL(url),addresses:[]};}',
    'benchrx-test:empty':'export {};',
    'benchrx-test:db':'export function createClient(){return globalThis.benchrxStage1DB;}',
    'benchrx-test:link':'export default "a";',
@@ -54,6 +59,7 @@ registerHooks({
 });
 process.env.NEXT_PUBLIC_SUPABASE_URL='https://database.fixture';
 process.env.SUPABASE_SERVICE_ROLE_KEY='fixture';
+process.env.BENCHRX_APP_ORIGIN='https://benchrx.fixture';
 process.env.BENCHMARK_API_URL='https://worker.fixture';
 process.env.BENCHMARK_API_SECRET='x'.repeat(32);
 const page=(await import('../app/agents/[slug]/page.tsx')).default;
@@ -84,4 +90,22 @@ test('persisted rerun stays accepted when the HTTP trigger fails',async(t)=>{
  const response=await POST(new Request('https://benchrx.fixture/api/agents/fixture/rerun',{method:'POST',headers:{origin:'https://benchrx.fixture'}}),{params:Promise.resolve({slug:'fixture'})});
  assert.equal(response.status,201);
  assert.deepEqual(await response.json(),{benchmarkRun:{id:'queued-run',status:'queued'},benchmarkTriggered:false});
+});
+
+
+test('submission and rerun refuse failed preflight before any agent insert or queue admission',async()=>{
+ const {POST:submit}=await import('../app/api/agents/route.ts');
+ const {POST:connectionTest}=await import('../app/api/connections/test/route.ts');
+ state.preflightOK=false;state.insertCount=0;state.enqueueCount=0;
+ try {
+  const request=(body:unknown)=>new Request('https://benchrx.fixture/api/agents',{method:'POST',headers:{'Content-Type':'application/json',origin:'https://benchrx.fixture'},body:JSON.stringify(body)});
+  const submitted=await submit(request({connectionType:'native',name:'Fixture',endpointUrl:'https://agent.fixture'}));
+  assert.equal(submitted.status,502);
+  assert.equal(state.insertCount,0);assert.equal(state.enqueueCount,0);
+  const rerun=await POST(request({}),{params:Promise.resolve({slug:'fixture'})});
+  assert.equal(rerun.status,502);assert.equal(state.enqueueCount,0);
+  const native=await connectionTest(request({connectionType:'native',endpointUrl:'https://native.fixture'}));
+  assert.equal(native.status,502);
+  assert.equal(state.preflightEndpoints.at(-1),'https://native.fixture/');
+ } finally {state.preflightOK=true;}
 });

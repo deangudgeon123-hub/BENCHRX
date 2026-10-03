@@ -1,6 +1,9 @@
+import {preflightConnection} from "@/lib/server/connection-preflight";
 import { requireSameOrigin } from "@/lib/server/access";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+
+export const maxDuration = 240;
 
 function getServerSupabase() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -58,7 +61,7 @@ export async function POST(request: Request, { params }: RouteContext) {
 
     const { data: agent, error: agentError } = await supabase
       .from("agents")
-      .select("id,slug,workspace_id")
+      .select("id,slug,workspace_id,endpoint_url")
       .eq("slug", slug)
       .eq("is_public", true)
       .single();
@@ -66,6 +69,9 @@ export async function POST(request: Request, { params }: RouteContext) {
     if (agentError || !agent) {
       return NextResponse.json({ error: "Agent not found." }, { status: 404 });
     }
+
+    const preflight = await preflightConnection(agent.endpoint_url);
+    if (!preflight.ok) return NextResponse.json({error: "Connection preflight failed. No benchmark was queued.", ...(preflight.diagnostics ? {diagnostics:preflight.diagnostics} : {})}, {status:preflight.status});
 
     const {data:benchmarkRun,error:benchmarkError}=await supabase.rpc("benchrx_enqueue_run",{p_agent_id:agent.id});
 

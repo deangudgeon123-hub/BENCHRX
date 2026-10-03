@@ -1,5 +1,6 @@
 import {isRuntimeConnector, runtimeEndpoint} from "@/lib/server/connectors/runtime-config";
 import { readBoundedJson, appOrigin } from "@/lib/server/access";
+import {preflightConnection} from "@/lib/server/connection-preflight";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -12,7 +13,9 @@ export async function POST(request: Request) {
     const origin = appOrigin();
 
     let adapter: URL;
-    if (isRuntimeConnector(connectionType)) {
+    if (connectionType === "native") {
+      adapter = new URL(String(body.endpointUrl ?? "").trim());
+    } else if (isRuntimeConnector(connectionType)) {
       adapter = runtimeEndpoint({...body, connectionType}, origin);
     } else if (connectionType === "gradio") {
       const spaceUrl = String(body.spaceUrl ?? "").trim();
@@ -46,51 +49,8 @@ export async function POST(request: Request) {
       adapter.searchParams.set("fixedBody", fixedBody);
     }
 
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.BENCHRX_ADAPTER_SECRET ?? ""}`,
-    };
-
-    const protectionBypass = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
-    if (protectionBypass) {
-      headers["x-vercel-protection-bypass"] = protectionBypass;
-    }
-
-    const connectorConfig = Object.fromEntries(adapter.searchParams);
-    adapter.search = "";
-
-    let response: Response;
-    try {
-      response = await fetch(adapter, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          _benchrx_config: connectorConfig,
-          _benchrx_connection_test: connectionType === "a2a",
-          message: "Reply briefly to confirm this BENCHRX connection test was received.",
-        }),
-        cache: "no-store",
-        signal: AbortSignal.timeout(connectionType === "gradio" ? 135000 : 65000),
-        redirect: "error",
-      });
-    } catch (error) {
-      console.error("BENCHRX connection adapter fetch failed", {
-        stage: "adapter_request",
-        code: "fetch_failed",
-      });
-      throw error;
-    }
-
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-      console.error("BENCHRX connection adapter returned error", {
-        stage: "adapter_response",
-        code: "http_error",
-        status: response.status,
-        payloadType: payload === null ? "null" : Array.isArray(payload) ? "array" : typeof payload,
-      });
-      return NextResponse.json({ error: "Connection test failed.", ...(isRuntimeConnector(connectionType) && payload?.diagnostics ? {diagnostics: payload.diagnostics} : {}) }, { status: response.status });
-    }
+    const result = await preflightConnection(adapter.href);
+    if (!result.ok) return NextResponse.json({error: "Connection test failed.", ...(result.diagnostics ? {diagnostics:result.diagnostics} : {})}, {status:result.status});
 
     return NextResponse.json({
       ok: true,

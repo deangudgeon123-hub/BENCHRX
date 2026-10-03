@@ -1,8 +1,11 @@
+import {preflightConnection} from "@/lib/server/connection-preflight";
 import {isRuntimeConnector, runtimeEndpoint} from "@/lib/server/connectors/runtime-config";
 import {validateAndPinPublicHttpsUrl} from "@/lib/server/pinned-https";
 import { readBoundedJson, appOrigin } from "@/lib/server/access";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+
+export const maxDuration = 240;
 
 function makeSlug(name: string) {
   const base = name
@@ -269,6 +272,9 @@ export async function POST(request: Request) {
       console.error("BENCHRX request failed");
       return NextResponse.json({ error: "Server configuration is incomplete." }, { status: 500 });
     }
+
+    const preflight = await preflightConnection(parsedUrl.href);
+    if (!preflight.ok) return NextResponse.json({error: "Connection preflight failed. No benchmark was queued.", ...(preflight.diagnostics ? {diagnostics:preflight.diagnostics} : {})}, {status:preflight.status});
 
     const { data: agent, error: agentError } = await supabase
       .from("agents")
