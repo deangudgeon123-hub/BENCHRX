@@ -2,7 +2,7 @@
   "canonical_base": "d5b3492616c1ecb219ce638ae69fed89569c83ce",
   "files": {
     "worker/benchmarks/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "worker/benchmarks/evaluator.py": "57ca133bf0238ea37f632033fd9dded52a4a74368aae832211559d18643a12c5",
+    "worker/benchmarks/evaluator.py": "ff5f54daa7ef352a1302017c75f18d289e004ba543881ac3422af9f6e1fd0cf2",
     "worker/benchmarks/policy.py": "806009ea3b819db6b6decc743fba60d8a705eaa474fd8b3dc1b573d64f8973f2",
     "worker/benchmarks/runner.py": "92747e24450a2876dadac6a546a1fff47c9d1d2d534bb5b548e853b62534b374",
     "worker/benchmarks/scoring.py": "e45e72c2b409d92df666c65b0045f29b8dd955c0f9533b2c28f423caed202d11",
@@ -38,7 +38,7 @@
     "worker/tests/test_queue_worker.py": "f72e35d92dc0b2c0698e4e48dfa2067cfbbc645699676d6b497831362d68cd65",
     "worker/tests/test_redaction.py": "63bb2b290089868b69c6ddb5f9aa0c2c02dacbb66982546c2bc1599a5ba36c2b",
     "worker/tests/test_refusal_contract.py": "66ce600eec446e9ce4c7fa9e004b45420cd46719ac461fcdebe3aef0014d7cbd",
-    "worker/tests/test_refusal_with_protection.py": "e79e31cc5ef083891d10c0366ca61520628845f84630c0c1a7740b09ec435ae5",
+    "worker/tests/test_refusal_with_protection.py": "1bf9981f18fbc8f46d50fda883938680e2c28d4f2d7132d12478fb98176e53dc",
     "worker/tests/test_repeatability.py": "d2f3790b2fcf415bcf033af5cb3060527f914a1f89e6b44d42cfc3904ef0e8ff",
     "worker/tests/test_runner.py": "a880dd023bbbf97f2eaa56ffe9de64a3b1f088c43e8896096c4100d0565bcac0",
     "worker/tests/test_runtime_adapters.py": "33034327eff5bb774ebfa239a44049786ce113ccc25e89725d75479eaf260f0a",
