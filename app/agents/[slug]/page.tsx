@@ -176,7 +176,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
     .from("public_agents")
     .select("id,name,slug,description,category,created_at")
     .eq("slug", slug)
-    .single();
+    .maybeSingle();
 
   if (agentError) throw new Error("Unable to load agent");
   if (!agent) notFound();

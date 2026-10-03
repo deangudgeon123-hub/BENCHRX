@@ -4,7 +4,8 @@ import {randomBytes} from 'node:crypto';
 import {once} from 'node:events';
 import assert from 'node:assert/strict';
 const token=randomBytes(32).toString('hex');
-const origin='http://127.0.0.1:3187';
+// Match the canonical origin Next uses for its local request URLs.
+const origin='http://localhost:3187';
 const marker='AUDIT_FAKE_SECRET';
 let logs='';
 const child=spawn(process.execPath,['node_modules/next/dist/bin/next','start','--port','3187','--hostname','127.0.0.1'],{
@@ -19,10 +20,14 @@ try {
   await new Promise(r=>setTimeout(r,100));
  }
  assert.ok(ready,'Production server started');
- for(const path of ['/api/agents/fixture/rerun','/api/connections/discover','/api/adapters/generic','/api/adapters/gradio','/api/adapters/storkie','/api/adapters/a2a','/api/adapters/langgraph','/api/adapters/openai-agents']){
+ for(const path of ['/api/connections/discover','/api/adapters/generic','/api/adapters/gradio','/api/adapters/storkie','/api/adapters/a2a','/api/adapters/langgraph','/api/adapters/openai-agents']){
   const response=await fetch(origin+path,{method:'POST',body:'{"message":"fixture"}'});
   assert.equal(response.status,401,path);
  }
+ const untrustedRerun=await fetch(origin+'/api/agents/fixture/rerun',{method:'POST'});
+ assert.equal(untrustedRerun.status,403,'Reruns require same-origin requests');
+ const sameOriginRerun=await fetch(origin+'/api/agents/fixture/rerun',{method:'POST',headers:{Origin:origin}});
+ assert.equal(sameOriginRerun.status,500,'Same-origin reruns reach server configuration checks without Basic Auth');
  const publicAgent=await fetch(origin+'/api/agents',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
  assert.equal(publicAgent.status,400,'Public benchmark submission no longer requires operator auth');
  const publicConnection=await fetch(origin+'/api/connections/test',{method:'POST',headers:{'Content-Type':'application/json'},body:'{"connectionType":"custom"}'});

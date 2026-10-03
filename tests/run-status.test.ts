@@ -9,18 +9,19 @@ import {renderToStaticMarkup} from 'react-dom/server';
 
 // Run the real Next handlers/pages offline with fake database and transport only.
 const root=new URL('../',import.meta.url);
-const state={latest:{id:'failed-run',status:'failed'}, history:[] as Record<string,unknown>[], results:[] as Record<string,unknown>[], dbErrorTable:null as string|null,preflightOK:true,preflightEndpoints:[] as string[],insertCount:0,enqueueCount:0};
+const state={latest:{id:'failed-run',status:'failed'}, history:[] as Record<string,unknown>[], results:[] as Record<string,unknown>[], dbErrorTable:null as string|null,preflightOK:true,agentExists:true,preflightEndpoints:[] as string[],insertCount:0,enqueueCount:0};
 const query={
  from(table:string){return new Query(table);},
  async rpc(){state.enqueueCount++;return {data:{id:'queued-run',status:'queued'},error:null};},
 };
 class Query {
+ singleMode=false;
  readonly table:string;
  constructor(table:string){this.table=table;}
  insert(){state.insertCount++;return this;} delete(){return this;}
  select(){return this;} eq(){return this;} order(){return this;} limit(){return this;}
- single(){return this;} maybeSingle(){return this;}
- then(resolve:(value:unknown)=>unknown){return Promise.resolve({data:this.table==='public_agents'||this.table==='agents'?{id:'agent-id',name:'Fixture',slug:'fixture',category:'general',endpoint_url:'https://agent.fixture'}:this.table==='public_benchmark_runs'?state.history:this.table==='benchmark_runs'?state.latest:state.results,error:state.dbErrorTable===this.table?{message:'PRIVATE_DB_ERROR'}:null}).then(resolve);}
+ single(){this.singleMode=true;return this;} maybeSingle(){return this;}
+ then(resolve:(value:unknown)=>unknown){return Promise.resolve({data:this.table==='public_agents'||this.table==='agents'?(state.agentExists?{id:'agent-id',name:'Fixture',slug:'fixture',category:'general',endpoint_url:'https://agent.fixture'}:null):this.table==='public_benchmark_runs'?state.history:this.table==='benchmark_runs'?state.latest:state.results,error:this.singleMode && this.table==='public_agents' && !state.agentExists?{code:'PGRST116'}:state.dbErrorTable===this.table?{message:'PRIVATE_DB_ERROR'}:null}).then(resolve);}
 }
 Object.assign(globalThis,{benchrxStage1DB:query,benchrxStage1React:React,benchrxStage1Preflight:async(endpoint:string)=>{state.preflightEndpoints.push(endpoint);return state.preflightOK?{ok:true}:{ok:false,status:502,diagnostics:{stage:'extraction',code:'missing_response'}};}});
 registerHooks({
@@ -108,4 +109,10 @@ test('submission and rerun refuse failed preflight before any agent insert or qu
   assert.equal(native.status,502);
   assert.equal(state.preflightEndpoints.at(-1),'https://native.fixture/');
  } finally {state.preflightOK=true;}
+});
+
+
+test('missing public scorecards retain not-found handling instead of becoming database failures',async()=>{
+ state.agentExists=false;
+ try {await assert.rejects(render(),/not found/);} finally {state.agentExists=true;}
 });
