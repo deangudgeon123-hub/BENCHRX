@@ -74,17 +74,15 @@ export async function POST(request: Request, { params }: RouteContext) {
       return NextResponse.json({ error: "Queue admission denied. Check active runs and retry later." }, { status: 500 });
     }
 
+    let benchmarkTriggered = false;
     try {
       await triggerBenchmarkWorker(benchmarkRun.id);
+      benchmarkTriggered = true;
     } catch (error) {
       console.error("BENCHRX request failed");
-      return NextResponse.json(
-        { error: "The run was queued, but the worker could not be started." },
-        { status: 502 }
-      );
     }
 
-    return NextResponse.json({ benchmarkRun }, { status: 201 });
+    return NextResponse.json({ benchmarkRun, benchmarkTriggered }, { status: 201 });
   } catch (error) {
     console.error("BENCHRX request failed");
     return NextResponse.json({ error: "Something went wrong." }, { status: 500 });

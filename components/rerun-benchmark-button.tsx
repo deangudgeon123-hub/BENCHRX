@@ -7,9 +7,10 @@ import { Loader2, RotateCw } from "lucide-react";
 type Props = {
   slug: string;
   latestCompletedRunId?: string | null;
+  latestRun?: {id: string; status: string} | null;
 };
 
-export function RerunBenchmarkButton({ slug, latestCompletedRunId = null }: Props) {
+export function RerunBenchmarkButton({ slug, latestCompletedRunId = null, latestRun = null }: Props) {
   const router = useRouter();
   const [isRunning, setIsRunning] = useState(false);
   const [message, setMessage] = useState("");
@@ -21,6 +22,11 @@ export function RerunBenchmarkButton({ slug, latestCompletedRunId = null }: Prop
     if (targetRunId && latestCompletedRunId === targetRunId) {
       setIsRunning(false);
       setMessage("Benchmark complete. Latest score is shown above.");
+      return;
+    }
+    if (targetRunId && latestRun?.id === targetRunId && latestRun.status === "failed") {
+      setIsRunning(false);
+      setMessage("BENCHRX execution failed. This is not an agent behavioural failure. You can retry the benchmark.");
       return;
     }
 
@@ -38,7 +44,7 @@ export function RerunBenchmarkButton({ slug, latestCompletedRunId = null }: Prop
       window.clearInterval(timer);
       window.clearTimeout(stop);
     };
-  }, [isRunning, latestCompletedRunId, router, targetRunId]);
+  }, [isRunning, latestCompletedRunId, latestRun?.id, latestRun?.status, router, targetRunId]);
 
   async function handleRerun() {
     setMessage("");
@@ -59,7 +65,7 @@ export function RerunBenchmarkButton({ slug, latestCompletedRunId = null }: Prop
 
       const runId = typeof data?.benchmarkRun?.id === "string" ? data.benchmarkRun.id : null;
       setTargetRunId(runId);
-      setMessage("New benchmark started. This page will keep checking until the completed result is shown.");
+      setMessage(data.benchmarkTriggered === false ? "Benchmark queued. Waiting for a worker; this page will keep checking." : "New benchmark started. This page will keep checking until the completed result is shown.");
       router.refresh();
     } catch (error) {
       setIsRunning(false);

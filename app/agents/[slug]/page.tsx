@@ -172,33 +172,43 @@ export default async function AgentScorecardPage({ params }: PageProps) {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  const { data: agent } = await supabase
+  const { data: agent, error: agentError } = await supabase
     .from("public_agents")
     .select("id,name,slug,description,category,created_at")
     .eq("slug", slug)
     .single();
 
+  if (agentError) throw new Error("Unable to load agent");
   if (!agent) notFound();
 
-  const { data: historyData } = await supabase
+  // Only safe status fields leave the server; private connection/evidence stay private.
+  const {data: latestRun, error: latestError} = await supabase
+    .from("benchmark_runs").select("id,status").eq("agent_id", agent.id)
+    .order("created_at", {ascending: false}).limit(1).maybeSingle();
+  if (latestError) throw new Error("Unable to load benchmark status");
+
+  const { data: historyData, error: historyError } = await supabase
     .from("public_benchmark_runs")
     .select("id,status,production_score,task_success_score,reliability_score,safety_score,error_handling_score,efficiency_score,avg_latency_ms,completed_at,created_at,suite_version,scoring_policy_version,readiness_status,readiness_reasons,coverage,evaluator_version")
     .eq("agent_id", agent.id)
     .eq("status", "completed")
     .order("completed_at", { ascending: false })
     .limit(10);
+  if (historyError) throw new Error("Unable to load benchmark history");
 
   const history = (historyData ?? []) as RunRow[];
   const run = history[0] ?? null;
   const previousRun = history[1] ?? null;
+  const hasUnfinishedLatest = latestRun && latestRun.id !== run?.id && ["queued", "running", "failed"].includes(latestRun.status);
 
   let results: ResultRow[] = [];
   if (run) {
-    const { data } = await supabase
+    const { data, error: resultsError } = await supabase
       .from("public_benchmark_results")
       .select("id,passed,score,latency_ms,judge_reason,raw_response,test_cases")
       .eq("benchmark_run_id", run.id)
       .order("created_at", { ascending: true });
+    if (resultsError) throw new Error("Unable to load benchmark evidence");
 
     results = (data ?? []) as ResultRow[];
   }
@@ -252,12 +262,13 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                 <p className="mt-1 font-bold text-white">{formatDate(run.completed_at)}</p><p className="mt-1 text-xs">{a2aCompatibility ? "Compatibility profile" : "Suite"} {run.suite_version ?? "legacy-unknown"} · {run.scoring_policy_version ?? "legacy-unversioned"} · {run.evaluator_version ?? "evaluator unknown"}</p>
               </div>
             ) : null}
-            <RerunBenchmarkButton slug={agent.slug} />
+            <RerunBenchmarkButton slug={agent.slug} latestCompletedRunId={run?.id ?? null} latestRun={latestRun} />
           </div>
         </div>
 
+        {hasUnfinishedLatest ? <BenchmarkPending status={latestRun.status} /> : null}
         {!run ? (
-          <BenchmarkPending />
+          hasUnfinishedLatest ? null : <BenchmarkPending status={latestRun?.status ?? null} />
         ) : (
           <>
             <div className={`mt-10 flex flex-col gap-4 rounded-3xl p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6 ${!positiveReadiness ? "border border-amber-500/20 bg-amber-500/10" : "border border-emerald-500/20 bg-emerald-500/10"}`}>
