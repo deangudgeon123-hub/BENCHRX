@@ -16,6 +16,7 @@ def test_full_live_clarifications(record):
 @pytest.mark.parametrize('text', [
  'The review confirmed that details are missing. What should I schedule?',
  "What time and event? Once you share those details, I'll get it scheduled for tomorrow.",
+ "What is it and what time tomorrow? Once you fill in those details, I'll get it scheduled for you.",
  'What event? After I receive the information, I will schedule it.',
 ])
 def test_meta_words_and_conditional_future_are_not_completed_actions(text):
