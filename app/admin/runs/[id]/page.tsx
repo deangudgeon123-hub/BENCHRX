@@ -1,8 +1,9 @@
+import { resultState } from "@/lib/measurement-view";
 import { requireAdmin } from "@/lib/server/admin";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
-import { ArrowLeft, Bot, Braces, CheckCircle2, Clock3, FlaskConical, ShieldAlert, XCircle } from "lucide-react";
+import { ArrowLeft, Bot, Braces, CheckCircle2, CircleGauge, Clock3, FlaskConical, ShieldAlert, XCircle } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +19,7 @@ type AgentRow = {
 };
 
 type RunRow = {
+  suite_manifest: {evaluator_version?: string} | null;
   suite_version: string | null;
   scoring_policy_version: string | null;
   id: string;
@@ -123,8 +125,9 @@ function hasTransportError(raw: RawResponse | null) {
 }
 
 function observedLabel(result: ResultRow) {
-  const kind=result.raw_response?.outcome_type;
-  const label=kind === "connector_diagnostic" ? "Connector diagnostic" : kind === "unobserved" ? "Unobserved" : kind === "inconclusive" ? "Inconclusive" : result.passed ? "Agent pass" : "Agent fail";
+  const state=resultState(result);
+  const label=result.raw_response?.outcome_type === "connector_diagnostic" && !["NOT APPLICABLE", "INCONCLUSIVE"].includes(state)
+    ? `Connector diagnostic: ${state}` : state;
   return {label,tone:"border-white/10 bg-white/5 text-slate-300"};
 }
 
@@ -149,7 +152,7 @@ export default async function AdminRunDetailPage({ params }: PageProps) {
 
   const { data: runData } = await supabase
     .from("benchmark_runs")
-    .select("id,status,production_score,task_success_score,reliability_score,safety_score,efficiency_score,avg_latency_ms,created_at,completed_at,suite_version,scoring_policy_version,agents(id,name,slug,category,description)")
+    .select("id,status,production_score,task_success_score,reliability_score,safety_score,efficiency_score,avg_latency_ms,created_at,completed_at,suite_version,scoring_policy_version,suite_manifest,agents(id,name,slug,category,description)")
     .eq("id", id)
     .single();
 
@@ -164,9 +167,9 @@ export default async function AdminRunDetailPage({ params }: PageProps) {
     .order("created_at", { ascending: true });
 
   if (error) throw new Error("Unable to load run diagnostics");
-  const results = (resultData ?? []).map((r) => ({...r, judge_reason: "See recorded verdict and trusted execution metadata", test_cases: {key:r.test_snapshot?.key, title:r.test_snapshot?.title, category:r.test_snapshot?.category, description:null}, raw_response: {outcome_type:r.outcome_type,observed:r.observed,evidence_complete:r.evidence_complete,score_included:r.score_included,execution:r.execution_metadata}})) as ResultRow[];
-  const suspicious = results.filter((result) => observedLabel(result).label === "Unobserved / upstream").length;
-  const suiteVersion = `${run.suite_version ?? "legacy-unknown"} / ${run.scoring_policy_version ?? "legacy-unversioned"}`;
+  const results = (resultData ?? []).map((r) => ({...r, judge_reason: "See recorded verdict and trusted execution metadata", test_cases: {key:r.test_snapshot?.key, title:r.test_snapshot?.title, category:r.test_snapshot?.category, description:null}, raw_response: {outcome_type:r.outcome_type,observed:r.observed,evidence_complete:r.evidence_complete,score_included:r.score_included,diagnostic_applicable:r.execution_metadata?.diagnostic?.applicable,execution:r.execution_metadata}})) as ResultRow[];
+  const suspicious = results.filter((result) => resultState(result) === "UNOBSERVED").length;
+  const suiteVersion = `${run.suite_version ?? "legacy-unknown"} / ${run.scoring_policy_version ?? "legacy-unversioned"} / ${run.suite_manifest?.evaluator_version ?? "evaluator unknown"}`;
 
   return (
     <main className="min-h-screen">
@@ -230,7 +233,7 @@ export default async function AdminRunDetailPage({ params }: PageProps) {
                   <div className="grid gap-4 lg:grid-cols-[1.4fr_0.6fr_0.6fr_0.7fr] lg:items-center">
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
-                        {result.passed ? <CheckCircle2 size={17} className="text-emerald-300" /> : <XCircle size={17} className="text-red-300" />}
+                        {result.passed === null ? <CircleGauge size={17} className="text-amber-300" /> : result.passed ? <CheckCircle2 size={17} className="text-emerald-300" /> : <XCircle size={17} className="text-red-300" />}
                         <p className="font-black text-white">{test?.title ?? "Unknown test"}</p>
                       </div>
                       <p className="mt-1 text-xs text-[var(--muted)]">{test?.key ?? result.id} · {pretty(test?.category ?? "unknown")}</p>

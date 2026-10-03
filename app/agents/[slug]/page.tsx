@@ -1,5 +1,5 @@
 import "server-only";
-import { comparableRuns, diagnosticSummary, readinessLabel } from "@/lib/measurement-view";
+import { comparableRuns, diagnosticSummary, readinessLabel, resultState } from "@/lib/measurement-view";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
@@ -56,6 +56,7 @@ type ResultRow = {
 };
 
 type RunRow = {
+  evaluator_version: string | null;
   suite_version: string | null;
   scoring_policy_version: string | null;
   readiness_status: string | null;
@@ -109,8 +110,7 @@ function isConnectorDiagnostic(result: ResultRow) {
 }
 
 function isUnobserved(result: ResultRow) {
-  if (outcomeType(result) === "unobserved_upstream_error") return true;
-  return ["unobserved", "inconclusive"].includes(outcomeType(result) ?? "") || (result.raw_response?.score_included === false && !isConnectorDiagnostic(result));
+  return !isConnectorDiagnostic(result) && resultState(result) === "UNOBSERVED";
 }
 
 function isObservedBehaviour(result: ResultRow) {
@@ -182,7 +182,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
 
   const { data: historyData } = await supabase
     .from("public_benchmark_runs")
-    .select("id,status,production_score,task_success_score,reliability_score,safety_score,error_handling_score,efficiency_score,avg_latency_ms,completed_at,created_at,suite_version,scoring_policy_version,readiness_status,readiness_reasons,coverage")
+    .select("id,status,production_score,task_success_score,reliability_score,safety_score,error_handling_score,efficiency_score,avg_latency_ms,completed_at,created_at,suite_version,scoring_policy_version,readiness_status,readiness_reasons,coverage,evaluator_version")
     .eq("agent_id", agent.id)
     .eq("status", "completed")
     .order("completed_at", { ascending: false })
@@ -207,7 +207,8 @@ export default async function AgentScorecardPage({ params }: PageProps) {
   const unobservedResults = results.filter(isUnobserved);
   const diagnosticResults = results.filter(isConnectorDiagnostic);
   const passedCount = observedResults.filter((result) => result.passed).length;
-  const failedCount = observedResults.length - passedCount;
+  const failedCount = observedResults.filter(result => result.passed === false).length;
+  const inconclusiveCount = observedResults.filter(result => resultState(result) === "INCONCLUSIVE").length;
   const taskCoverage = run?.coverage?.task_success ?? categoryCoverage(results, "task_success");
   const reliabilityCoverage = run?.coverage?.reliability ?? categoryCoverage(results, "reliability");
   const safetyCoverage = run?.coverage?.safety ?? categoryCoverage(results, "safety");
@@ -248,7 +249,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
             {run ? (
               <div className="rounded-2xl border border-white/8 bg-white/[0.025] px-4 py-3 text-sm text-[var(--muted)]">
                 <p className="text-xs font-bold uppercase tracking-[0.14em]">{a2aCompatibility ? "Last compatibility check" : "Last verified"}</p>
-                <p className="mt-1 font-bold text-white">{formatDate(run.completed_at)}</p><p className="mt-1 text-xs">{a2aCompatibility ? "Compatibility profile" : "Suite"} {run.suite_version ?? "legacy-unknown"} · {run.scoring_policy_version ?? "legacy-unversioned"}</p>
+                <p className="mt-1 font-bold text-white">{formatDate(run.completed_at)}</p><p className="mt-1 text-xs">{a2aCompatibility ? "Compatibility profile" : "Suite"} {run.suite_version ?? "legacy-unknown"} · {run.scoring_policy_version ?? "legacy-unversioned"} · {run.evaluator_version ?? "evaluator unknown"}</p>
               </div>
             ) : null}
             <RerunBenchmarkButton slug={agent.slug} />
@@ -317,6 +318,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                   <div className="mt-5 flex flex-wrap gap-4 text-xs text-[var(--muted)]">
                     <span>{passedCount} observed passes</span>
                     <span>{failedCount} observed failures</span>
+                    <span>{inconclusiveCount} inconclusive observations</span>
                     <span>{Number(run.avg_latency_ms ?? 0).toLocaleString()} ms avg observed latency</span>
                   </div>
                 </div>
@@ -426,17 +428,19 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                   const testCase = getTestCase(result);
                   const diagnostic = isConnectorDiagnostic(result);
                   const unobserved = isUnobserved(result);
+                  const state = resultState(result);
+                  const unresolved = state === "INCONCLUSIVE" || state === "UNOBSERVED" || state === "NOT APPLICABLE";
                   return (
                     <div key={result.id} className={`flex flex-col gap-5 p-6 sm:flex-row sm:items-center sm:justify-between sm:p-7 ${index !== results.length - 1 ? "border-b border-white/8" : ""}`}>
                       <div className="flex min-w-0 items-start gap-4">
-                        <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border ${diagnostic ? "border-white/10 bg-white/5 text-[var(--muted)]" : unobserved ? "border-amber-500/20 bg-amber-500/10 text-amber-300" : result.passed ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300" : "border-red-500/20 bg-red-500/10 text-red-300"}`}>{diagnostic || unobserved ? <CircleGauge size={18} /> : result.passed ? <CheckCircle2 size={18} /> : <XCircle size={18} />}</div>
+                        <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border ${diagnostic ? "border-white/10 bg-white/5 text-[var(--muted)]" : unresolved ? "border-amber-500/20 bg-amber-500/10 text-amber-300" : result.passed ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300" : "border-red-500/20 bg-red-500/10 text-red-300"}`}>{diagnostic || unresolved ? <CircleGauge size={18} /> : result.passed ? <CheckCircle2 size={18} /> : <XCircle size={18} />}</div>
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
                             <p className="font-black text-white">{testCase?.title ?? "BENCHRX test"}</p>
                             {diagnostic ? (
-                              <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-[var(--muted)]">{result.passed === null ? "Diagnostic not evaluated" : "Connector diagnostic"}</span>
-                            ) : unobserved ? (
-                              <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-amber-200">Unobserved</span>
+                              <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-[var(--muted)]">{state === "NOT APPLICABLE" ? "Not applicable" : state === "INCONCLUSIVE" ? "Diagnostic inconclusive" : `Connector diagnostic: ${state === "PASS" ? "Passed" : "Failed"}`}</span>
+                            ) : unresolved ? (
+                              <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-amber-200">{state === "INCONCLUSIVE" ? "Inconclusive" : "Unobserved"}</span>
                             ) : (
                               <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${result.passed ? "bg-emerald-500/10 text-emerald-200" : "bg-red-500/10 text-red-200"}`}>{result.passed ? "Passed" : "Failed"}</span>
                             )}
@@ -451,7 +455,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                       </div>
                       <div className="flex shrink-0 items-center gap-6 pl-13 text-sm sm:pl-0">
                         <div className="text-right"><p className="text-xs text-[var(--muted)]">Latency</p><p className="mt-1 font-bold tabular-nums text-white">{Number(result.latency_ms ?? 0).toLocaleString()} ms</p></div>
-                        <div className="min-w-16 text-right"><p className="text-xs text-[var(--muted)]">{diagnostic || unobserved ? "Scoring" : "Score"}</p><p className="mt-1 font-black tabular-nums text-white">{diagnostic || unobserved ? "Not scored" : Number(result.score ?? 0).toFixed(0)}</p></div>
+                        <div className="min-w-16 text-right"><p className="text-xs text-[var(--muted)]">{diagnostic || unresolved ? "Scoring" : "Score"}</p><p className="mt-1 font-black tabular-nums text-white">{diagnostic || unresolved || result.score === null ? "Not scored" : Number(result.score).toFixed(0)}</p></div>
                       </div>
                     </div>
                   );
@@ -477,7 +481,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                     <div key={item.id} className={`flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6 ${index !== history.length - 1 ? "border-b border-white/8" : ""}`}>
                       <div className="flex items-center gap-3">
                         <div className={`flex h-9 w-9 items-center justify-center rounded-full ${index === 0 ? "bg-[var(--accent)]/10 text-[var(--accent)]" : "bg-white/5 text-[var(--muted)]"}`}><Clock3 size={17} /></div>
-                        <div><p className="font-black text-white">{compatibility ? (index === 0 ? "Latest compatibility check" : `Compatibility check ${index}`) : index === 0 ? "Latest run" : `Previous run ${index}`}</p><p className="mt-1 text-xs text-[var(--muted)]">{formatDate(item.completed_at)} · Suite {item.suite_version ?? "legacy-unknown"} · {item.scoring_policy_version ?? "legacy-unversioned"}{next && !comparableRuns(item, next) ? " · Not comparable with previous run" : ""}</p></div>
+                        <div><p className="font-black text-white">{compatibility ? (index === 0 ? "Latest compatibility check" : `Compatibility check ${index}`) : index === 0 ? "Latest run" : `Previous run ${index}`}</p><p className="mt-1 text-xs text-[var(--muted)]">{formatDate(item.completed_at)} · Suite {item.suite_version ?? "legacy-unknown"} · {item.scoring_policy_version ?? "legacy-unversioned"} · {item.evaluator_version ?? "evaluator unknown"}{next && !comparableRuns(item, next) ? " · Not comparable with previous run" : ""}</p></div>
                       </div>
                       <div className="flex items-center gap-5 pl-12 sm:pl-0">
                         {delta !== null ? <span className={`text-sm font-black ${delta > 0 ? "text-emerald-300" : delta < 0 ? "text-red-300" : "text-[var(--muted)]"}`}>{delta > 0 ? "+" : ""}{delta.toFixed(0)}</span> : null}

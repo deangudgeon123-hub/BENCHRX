@@ -5,7 +5,7 @@ import {PGlite} from '@electric-sql/pglite';
 async function database() {
  const db=new PGlite();
  await db.exec('create role anon; create role authenticated; create role service_role bypassrls;');
- for (const name of ['001_initial_schema.sql','002_measurement_provenance.sql','003_execution_leases.sql','004_private_evidence_projections.sql','005_queue_admission.sql','006_public_views_security_invoker.sql']) {
+ for (const name of ['001_initial_schema.sql','002_measurement_provenance.sql','003_execution_leases.sql','004_private_evidence_projections.sql','005_queue_admission.sql','006_public_views_security_invoker.sql','20261003122059_preserve_result_classification.sql']) {
   await db.exec(fs.readFileSync(`supabase/migrations/${name}`,'utf8').replace('create extension if not exists "pgcrypto";',''));
  }
  return db;
@@ -85,4 +85,31 @@ test('queue admission rejects duplicate active work and enforces capacity',async
   await db.exec('set role anon');
   await assert.rejects(db.query('select benchrx_enqueue_run($1)',[ids[10]]));
  }finally{await db.close();}
+});
+
+test('publication preserves verdict states, evaluator provenance and historical rows',async()=>{
+ const db=await database();
+ try {
+  const agent=(await db.query<{id:string}>("insert into agents(name,slug,endpoint_url) values('Fixture','states','https://example.com') returning id")).rows[0].id;
+  const run=(await db.query<{id:string}>("insert into benchmark_runs(agent_id,status,production_score,suite_manifest) values($1,'completed',94.69,$2) returning id",[agent,{evaluator_version:'deterministic-v2.25'}])).rows[0].id;
+  const fixtures=[
+   {key:'pass',passed:true,score:100,observed:true,outcome_type:'agent_pass'},
+   {key:'fail',passed:false,score:0,observed:true,outcome_type:'agent_fail'},
+   {key:'inconclusive',passed:null,score:null,observed:true,outcome_type:'inconclusive'},
+   {key:'unobserved',passed:null,score:null,observed:false,outcome_type:'unobserved'},
+   {key:'not-applicable',passed:null,score:null,observed:false,outcome_type:'connector_diagnostic'},
+  ];
+  for (const r of fixtures) await db.query('insert into benchmark_results(benchmark_run_id,test_key,passed,score,observed,outcome_type,test_snapshot,execution_metadata,raw_response) values($1,$2,$3,$4,$5,$6,$7,$8,$9)',[run,r.key,r.passed,r.score,r.observed,r.outcome_type,{key:r.key,category:r.outcome_type==='connector_diagnostic'?'error_handling':'safety',message:'PRIVATE_PROMPT'},r.key==='not-applicable'?{diagnostic:{applicable:false,reason_code:'PRIVATE_DETAIL'}}:{},{response:'PRIVATE_RESPONSE'}]);
+  const beforeRuns=await db.query('select * from benchmark_runs');
+  const beforeResults=await db.query('select * from benchmark_results');
+  await db.exec(fs.readFileSync('supabase/migrations/20261003122059_preserve_result_classification.sql','utf8'));
+  assert.deepEqual(await db.query('select * from benchmark_runs'),beforeRuns);
+  assert.deepEqual(await db.query('select * from benchmark_results'),beforeResults);
+  await db.exec('set role service_role');
+  assert.equal((await db.query<{evaluator_version:string}>('select evaluator_version from public_benchmark_runs where id=$1',[run])).rows[0].evaluator_version,'deterministic-v2.25');
+  const rows=(await db.query<{passed:boolean|null;score:number|null;raw_response:Record<string,unknown>;test_cases:{key:string}}>('select * from public_benchmark_results where benchmark_run_id=$1',[run])).rows;
+  const {resultState}=await import('../lib/measurement-view.ts');
+  assert.deepEqual(Object.fromEntries(rows.map(r=>[r.test_cases.key,resultState(r)])),{pass:'PASS',fail:'FAIL',inconclusive:'INCONCLUSIVE',unobserved:'UNOBSERVED','not-applicable':'NOT APPLICABLE'});
+  assert.equal(JSON.stringify(rows).includes('PRIVATE_'),false);
+ } finally {await db.close();}
 });
