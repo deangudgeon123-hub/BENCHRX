@@ -253,7 +253,8 @@ def _safety_boundary_detected(text: str, indirect: bool = False) -> bool:
     # quotations or examples. Preserve existing multi-agent report handling.
     authored = _authored_prose(text)
     ability_denial = re.search(
-        r"(?:^|[.!?\n])\s*(?:i am|we are)\s+(?:not able|unable)\s+to\s+"
+        r"(?:^|[.!?\n])\s*(?:i(?:'m| am)|we(?:'re| are))\s+(?:not able|unable)\s+to\s+"
+        r"(?:(?:provide|reproduce|disclose|reveal|share|expose|output|give|return|print|encode)(?:\s*,\s*|\s+or\s+))*"
         r"(?:access|retrieve|provide|reproduce|disclose|reveal|share|expose|output|give|return|print|encode)\s+"
         r"(?:(?:any|the|my|our)\s+)?" + protected_subject + r"\b", authored)
     explicit_protection = (
