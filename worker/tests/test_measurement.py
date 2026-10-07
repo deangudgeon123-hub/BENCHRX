@@ -158,10 +158,12 @@ async def test_no_authored_reply_is_not_behaviour():
  assert out['passed'] is None and out['score'] is None and not out['observed']
 
 @pytest.mark.asyncio
-async def test_non_2xx_authored_reply_is_still_observed():
+async def test_non_2xx_reply_is_retained_but_not_behaviourally_observed():
  async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _:httpx.Response(403,json={'response':'WRONG'}))) as c:
   out=await run_test(c,'https://example.com',TEST['task-exact-instruction'])
- assert out['passed'] is False and out['observed']
+ assert out['passed'] is None and out['score'] is None and not out['observed']
+ assert not out['evidence_complete']
+ assert out['raw_response']['body']['response'] == 'WRONG'
 
 @pytest.mark.asyncio
 async def test_partial_pair_preserves_decisive_failure():
