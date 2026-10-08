@@ -6,7 +6,7 @@ import {publicConnectorIO, type ConnectorDiagnostics, type ConnectorIO, type Con
 import type {ValidatedHttpsTarget} from '../pinned-https.ts';
 
 type Connection = {space: ValidatedHttpsTarget; plan: ReturnType<typeof parsePlan>};
-type Result = unknown[];
+type Result = {selected: unknown[]; completions: Array<ConnectorDiagnostics['gradioCompletion']>};
 
 function safeGradioErrorDiagnostics(error: unknown): ConnectorDiagnostics | undefined {
   if (!(error instanceof GradioInvocationError)) return undefined;
@@ -16,7 +16,7 @@ function safeGradioErrorDiagnostics(error: unknown): ConnectorDiagnostics | unde
 }
 
 export function createGradioConnector(io: ConnectorIO = publicConnectorIO): ConnectorProvider<Connection, Result> {
-  const extract = (c: Connection, result: Result) => extractAssistantText(result[c.plan.finalStepIndex]);
+  const extract = (c: Connection, result: Result) => extractAssistantText(result.selected[c.plan.finalStepIndex]);
   return {
     id: 'gradio',
     async discover(url) {return discoverGradio(url, io);},
@@ -26,7 +26,12 @@ export function createGradioConnector(io: ConnectorIO = publicConnectorIO): Conn
       return {space, plan};
     },
     async invoke(c, input) {
-      try {return await executeGradioPlan(c.space, c.plan, input.hasMessage ? input.message : undefined, io.request);}
+      try {
+        const completions: Result['completions'] = [];
+        const selected = await executeGradioPlan(c.space, c.plan, input.hasMessage ? input.message : undefined, io.request,
+          (index, completion) => {completions[index] = completion;});
+        return {selected, completions};
+      }
       catch (error) {
         console.error('BENCHRX Gradio invocation failed', error instanceof GradioInvocationError
           ? {stage: error.stage, code: error.code, httpStatus: error.httpStatus, stepIndex: error.stepIndex}
@@ -38,7 +43,8 @@ export function createGradioConnector(io: ConnectorIO = publicConnectorIO): Conn
     diagnose(c, result) {
       if (extract(c, result)) return {outcome: 'observed_response', status: 200};
       const diagnostics: ConnectorDiagnostics = {
-        stage: 'output', code: assistantOutputDiagnostic(result[c.plan.finalStepIndex]), stepIndex: c.plan.finalStepIndex,
+        stage: 'output', code: assistantOutputDiagnostic(result.selected[c.plan.finalStepIndex]), stepIndex: c.plan.finalStepIndex,
+        ...(result.completions[c.plan.finalStepIndex] ? {gradioCompletion: result.completions[c.plan.finalStepIndex]} : {}),
       };
       console.warn('BENCHRX Gradio output unavailable', diagnostics);
       return {outcome: 'unobserved_response', status: 502,

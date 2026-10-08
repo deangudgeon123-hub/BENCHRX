@@ -27,7 +27,8 @@ test('named Gradio complete is protocol-terminal even when final output is a non
   assert.equal(result.outcome, 'unobserved_response');
   assert.equal(result.completed, true);
   assert.equal(result.response, null);
-  assert.deepEqual(result.diagnostics, {stage: 'output', code: 'progress_placeholder', stepIndex: 0});
+  assert.deepEqual(result.diagnostics, {stage: 'output', code: 'progress_placeholder', stepIndex: 0,
+    gradioCompletion:{terminalEvent:'complete',outputIndex:3,outputCount:4,selectedType:'string'}});
 });
 
 test('first protocol-terminal completion wins; response content cannot force transport continuation', () => {

@@ -8,7 +8,9 @@ export type ConnectorIO = {
 export const publicConnectorIO: ConnectorIO = {pin: validateAndPinPublicHttpsUrl, request: pinnedHttpsRequest};
 export type InvocationInput = {hasMessage: boolean; message: unknown; connectionTest: boolean; profileProbe: boolean; structuredProbe: boolean};
 export type ConnectorOutcome = 'observed_response' | 'unobserved_response' | 'connector_failure';
-export type ConnectorDiagnostics = {stage: string; code: string; httpStatus?: number; stepIndex?: number};
+export type ConnectorDiagnostics = {stage: string; code: string; httpStatus?: number; stepIndex?: number;
+  gradioCompletion?: {terminalEvent: 'complete' | 'process_completed'; outputIndex: number; outputCount: number;
+    selectedType: 'string' | 'array' | 'object' | 'null' | 'other'}};
 export type ConnectorDiagnosis = {status: number; outcome: ConnectorOutcome; error?: string; diagnostics?: ConnectorDiagnostics};
 export type AdapterReply = {status: number; body: Record<string, unknown>};
 

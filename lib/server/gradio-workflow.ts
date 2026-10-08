@@ -312,7 +312,13 @@ async function callPinnedSingleStep(
   const completed = queueSessionHash ? parseQueueSseComplete(pollResponse.text, eventId) : parseSseComplete(pollResponse.text);
   const outputs = Array.isArray(completed) ? completed : [completed];
   if(step.outputIndex>=outputs.length) throw new GradioInvocationError('output', 'invalid_output');
-  return { completed, outputs, selected: outputs[step.outputIndex] };
+  const selected = outputs[step.outputIndex];
+  const selectedType: 'string' | 'array' | 'object' | 'null' | 'other' = selected === null ? 'null' : typeof selected === 'string' ? 'string'
+    : Array.isArray(selected) ? 'array' : typeof selected === 'object' ? 'object' : 'other';
+  return { completed, outputs, selected, completion: {
+    terminalEvent: queueSessionHash ? 'process_completed' as const : 'complete' as const,
+    outputIndex: step.outputIndex, outputCount: outputs.length, selectedType,
+  }};
 }
 
 function remainingTime(deadline:number, stage: 'submit' | 'poll' = 'submit'): number {
@@ -324,7 +330,11 @@ function remainingTime(deadline:number, stage: 'submit' | 'poll' = 'submit'): nu
 // One fresh session per benchmark request; all steps share it. No cross-test state.
 export async function executeGradioPlan(
   space:ValidatedHttpsTarget,plan:ParsedPlan,message:unknown,
-  transport:typeof pinnedHttpsRequest=pinnedHttpsRequest
+  transport:typeof pinnedHttpsRequest=pinnedHttpsRequest,
+  onCompletion?: (stepIndex: number, completion: {
+    terminalEvent: 'complete' | 'process_completed'; outputIndex: number; outputCount: number;
+    selectedType: 'string' | 'array' | 'object' | 'null' | 'other';
+  }) => void,
 ) {
   assertResolvedInputs(plan);
   const sessionHash=randomUUID();
@@ -339,6 +349,7 @@ export async function executeGradioPlan(
       throw error;
     });
     selectedResults.push(result.selected);
+    onCompletion?.(stepIndex, result.completion);
     stepOutputs.push(result.outputs);
   }
   return selectedResults;
