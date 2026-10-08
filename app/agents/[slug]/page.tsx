@@ -1,5 +1,5 @@
 import "server-only";
-import { comparableRuns, diagnosticSummary, readinessLabel, resultState } from "@/lib/measurement-view";
+import { behaviouralEvidenceSummary, comparableRuns, diagnosticSummary, readinessLabel, resultState, withholdingReason } from "@/lib/measurement-view";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
@@ -120,7 +120,7 @@ function isObservedBehaviour(result: ResultRow) {
 function categoryCoverage(results: ResultRow[], category: string) {
   const selected = results.filter((result) => getTestCase(result)?.category === category && !isConnectorDiagnostic(result));
   return {
-    observed: selected.filter(isObservedBehaviour).length,
+    observed: selected.filter(result => ['PASS', 'FAIL'].includes(resultState(result))).length,
     total: selected.length,
   };
 }
@@ -146,7 +146,7 @@ function ScoreBar({
       <div className="mb-2 flex items-start justify-between gap-4 text-sm">
         <div>
           <span className="font-semibold text-white">{label}</span>
-          <p className="mt-1 text-xs text-[var(--muted)]">{observed}/{total} observed{minimum === undefined ? " · legacy policy" : ` · minimum ${minimum}`}</p>
+          <p className="mt-1 text-xs text-[var(--muted)]">{observed}/{total} conclusive{minimum === undefined ? " · legacy policy" : ` · minimum ${minimum}`}</p>
         </div>
         {sufficient && score !== null ? (
           <span className="font-black tabular-nums text-white">{score.toFixed(0)}</span>
@@ -227,7 +227,8 @@ export default async function AgentScorecardPage({ params }: PageProps) {
   const productionScore = run?.production_score == null ? null : Number(run.production_score);
   const previousScore = previousRun?.production_score == null ? null : Number(previousRun.production_score);
   const scoreDelta = !a2aCompatibility && comparableRuns(run, previousRun) && productionScore !== null && previousScore !== null ? productionScore - previousScore : null;
-  const insufficientCategories = run?.readiness_reasons ?? ["Evidence was not sufficient under this run's recorded policy."];
+  const insufficientCategories = (run?.readiness_reasons ?? ["Evidence was not sufficient under this run's recorded policy."]).map(reason => withholdingReason(reason, results));
+  const behaviouralResults = results.filter(result => !isConnectorDiagnostic(result));
   const aiResults = results
     .map((result) => ({
       result,
@@ -300,7 +301,8 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                     <>
                       <p className="mt-7 text-4xl font-black tracking-[-0.045em] text-white sm:text-5xl">Score withheld</p>
                       <span className="mt-5 inline-flex rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-sm font-black text-amber-200">Insufficient evidence</span>
-                      <p className="mt-4 max-w-md text-sm leading-6 text-[var(--muted)]">BENCHRX did not observe enough behaviour in every critical category to issue a defensible production-readiness score.</p>
+                      <p className="mt-4 max-w-md text-sm leading-6 text-[var(--muted)]">BENCHRX did not establish enough conclusive pass/fail evidence in every required category. Receiving a response does not by itself establish safe or correct behaviour. This is not a score of zero.</p>
+                      <p className="mt-3 max-w-md text-sm leading-6 text-[var(--muted)]">Behavioural response evidence: {behaviouralEvidenceSummary(behaviouralResults)}. This is separate from transport connectivity and does not certify connection health.</p>
                     </>
                   ) : (
                     <>

@@ -1,7 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {comparableRuns, diagnosticSummary, readinessLabel} from '../lib/measurement-view.ts';
+import {behaviouralEvidenceSummary, comparableRuns, diagnosticSummary, readinessLabel, withholdingReason} from '../lib/measurement-view.ts';
 const current={suite_version:'2.0',scoring_policy_version:'behavioural-v2.2',evaluator_version:'deterministic-v2.25'};
+test('withholding distinguishes inconclusive replies from missing usable responses without rewriting gates',()=>{
+ const rows = [
+  {passed:null,score:null,raw_response:{observed:true,outcome_type:'inconclusive'},test_cases:{key:'safety-secret-probe'}},
+  {passed:null,score:null,raw_response:{observed:false,outcome_type:'unobserved'},test_cases:[{key:'task-basic'}]},
+ ];
+ assert.equal(withholdingReason('Missing mandatory observation: safety-secret-probe',rows),'Response received, but no conclusive verdict: safety-secret-probe');
+ assert.equal(withholdingReason('Missing complete behavioural observation: task-basic',rows),'No usable behavioural response: task-basic');
+ assert.equal(withholdingReason('Missing mandatory observation: absent',rows),'Missing mandatory observation: absent');
+ assert.equal(withholdingReason('safety: insufficient category coverage',rows),'safety: insufficient category coverage');
+ assert.equal(behaviouralEvidenceSummary([...rows,{passed:false,score:0,raw_response:null},{passed:true,score:100,raw_response:null}]),'2 conclusive checks · 1 responses inconclusive · 1 without usable behavioural responses');
+ assert.equal(rows[0].raw_response.outcome_type,'inconclusive');
+});
+test('A2A repeated help replies remain inconclusive, not connection failures or safety passes',()=>{
+ const rows=Array.from({length:27},(_,i)=>({passed:i<13?false:null,score:i<13?0:null,raw_response:{observed:true,outcome_type:i<13?'agent_fail':'inconclusive'}}));
+ assert.equal(behaviouralEvidenceSummary(rows),'13 conclusive checks · 14 responses inconclusive · 0 without usable behavioural responses');
+});
 test('inapplicable or inconclusive diagnostics are not counted as failures',()=>{
  assert.equal(diagnosticSummary([{passed:null},{passed:null},{passed:null},{passed:null}]),'Not evaluated');
  assert.equal(diagnosticSummary([{passed:true},{passed:false},{passed:null}]),'1/2 passed · 1 not evaluated');

@@ -39,3 +39,25 @@ export function diagnosticSummary(results: {passed: boolean | null}[]): string {
   if (!evaluated.length) return 'Not evaluated';
   return `${passed}/${evaluated.length} passed${unevaluated ? ` · ${unevaluated} not evaluated` : ''}`;
 }
+
+// Presentation only: recorded verdicts and policy gates remain unchanged.
+export function withholdingReason(reason: string, results: (MeasurementResult & {test_cases?: {key: string} | {key: string}[] | null})[]): string {
+  const match = /^(Missing mandatory observation|Missing complete behavioural observation): (.+)$/.exec(reason);
+  if (!match) return reason;
+  const result = results.find(result => {
+    const test = Array.isArray(result.test_cases) ? result.test_cases[0] : result.test_cases;
+    return test?.key === match[2];
+  });
+  const state = result ? resultState(result) : null;
+  if (state === 'INCONCLUSIVE') return `Response received, but no conclusive verdict: ${match[2]}`;
+  if (state === 'UNOBSERVED') return `No usable behavioural response: ${match[2]}`;
+  return reason;
+}
+
+export function behaviouralEvidenceSummary(results: MeasurementResult[]): string {
+  const states = results.map(resultState);
+  const conclusive = states.filter(state => state === 'PASS' || state === 'FAIL').length;
+  const inconclusive = states.filter(state => state === 'INCONCLUSIVE').length;
+  const unobserved = states.filter(state => state === 'UNOBSERVED').length;
+  return `${conclusive} conclusive checks · ${inconclusive} responses inconclusive · ${unobserved} without usable behavioural responses`;
+}
