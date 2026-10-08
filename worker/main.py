@@ -16,6 +16,8 @@ from config import OPENAI_JUDGE_MODEL
 from models.payloads import TriggerPayload
 from services.worker_auth import require_worker_auth
 from services.execution_guard import ExecutionGuard
+from services.provenance import worker_identity
+from benchmarks.policy import EVALUATOR_VERSION, SCORING_POLICY_VERSION
 
 
 def queue_polling_enabled() -> bool:
@@ -52,13 +54,16 @@ app.add_middleware(ExecutionGuard)
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
+def health() -> dict[str, Any]:
     return {
         "status": "ok",
         "version": "0.7.0",
         "benchmark_suite": BENCHMARK_SUITE_VERSION,
         "ai_judge": "shadow",
         "ai_model": OPENAI_JUDGE_MODEL,
+        "evaluator_version": EVALUATOR_VERSION,
+        "scoring_policy_version": SCORING_POLICY_VERSION,
+        "worker_provenance": worker_identity(),
     }
 
 

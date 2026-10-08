@@ -15,6 +15,8 @@ from benchmarks.tests import TESTS
 ])
 async def test_runner_resumes_immutable_evidence_and_shadow_cannot_change_completion(monkeypatch, endpoint, run_budget, shadow_fails):
     records={}; events=[]; summaries=[]; calls=0
+    identity={'schema_version':'worker-provenance-v1','worker_commit_sha':'a'*40,'worker_source_sha256':'b'*64}
+    monkeypatch.setattr(runner,'worker_identity',lambda:dict(identity))
     monkeypatch.setenv('BENCHRX_ADAPTER_ORIGINS', 'https://benchrx.example')
     monkeypatch.setenv('BENCHRX_ADAPTER_SECRET', 'a' * 32)
     monkeypatch.setattr(evaluator,'A2A_REQUEST_SPACING_SECONDS',0)
@@ -37,9 +39,11 @@ async def test_runner_resumes_immutable_evidence_and_shadow_cannot_change_comple
             assert params['p_manifest']['suite_version']=='2.0'
             assert params['p_manifest']['scoring_policy_version']=='behavioural-v2.2'
             assert len(params['p_manifest']['tests'])==31
+            assert params['p_manifest']['worker_provenance']==identity
             return {'connection':{'endpoint_url':endpoint}}
         if name=='benchrx_save_result':
             r=params['p_result'];assert r['test_key'] not in records
+            assert r['execution_metadata']['worker_provenance']==identity
             records[r['test_key']]=r;events.append('save');return True
         if name=='benchrx_finish_run':
             assert len(records)==len(TESTS)

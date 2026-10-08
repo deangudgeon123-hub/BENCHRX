@@ -14,6 +14,7 @@ from services.public_network import public_client
 from services.agent_client import is_trusted_a2a_adapter, is_trusted_gradio_adapter, GRADIO_REQUEST_TIMEOUT_SECONDS
 from services.supabase import get_supabase
 from services.redaction import redact,known_secrets
+from services.provenance import worker_identity
 
 
 def uses_benchrx_adapter(endpoint_url: str) -> bool:
@@ -46,7 +47,8 @@ async def execute_run(run_id: str) -> dict[str, Any]:
     token=str(uuid4())
     # The canonical BENCHRX benchmark is invariant across connector types.
     # Connector compatibility must never silently replace the 31-test behavioural suite.
-    manifest=suite_manifest()
+    identity=worker_identity()
+    manifest={**suite_manifest(), 'worker_provenance': identity}
     claim=await rpc(supabase,'benchrx_claim_run',p_run_id=run_id,p_token=token,p_manifest=manifest)
     if not claim:return {'status':'not_claimed','run_id':run_id}
     secret_values=known_secrets(claim["connection"]["endpoint_url"])
@@ -84,6 +86,7 @@ async def execute_run(run_id: str) -> dict[str, Any]:
                         diagnostic=test['category']=='error_handling'
                         observed=_outcome_observed(test,outcome)
                         execution_metadata=dict(outcome['execution'])
+                        execution_metadata['worker_provenance']=dict(identity)
                         if isinstance(outcome.get('interpretation'),dict):
                             execution_metadata['interpretation']=outcome['interpretation']
                         outcome['execution']=execution_metadata

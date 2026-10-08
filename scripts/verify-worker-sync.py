@@ -14,12 +14,13 @@ MANIFEST = ROOT / 'docs/hardening/worker-sync.json'
 parser = argparse.ArgumentParser()
 parser.add_argument('--write', action='store_true')
 parser.add_argument('--compare')
+parser.add_argument('--canonical-base', default='origin/main', help='Reviewed canonical parent ref when writing hashes')
 args = parser.parse_args()
 paths = sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / 'worker').rglob('*')
                if p.is_file() and (p.suffix == '.py' or p.name.startswith('requirements')))
 if args.write:
     MANIFEST.write_text(json.dumps({
-        'canonical_base': 'c505b21550ec6e244513adab072f8ae68ff84306',
+        'canonical_base': subprocess.check_output(['git', 'rev-parse', '--verify', args.canonical_base + '^{commit}'], cwd=ROOT, text=True).strip(),
         'files': {p: hashlib.sha256((ROOT / p).read_bytes()).hexdigest() for p in paths},
     }, indent=2) + '\n')
     print(f'Recorded {len(paths)} worker file hashes')
