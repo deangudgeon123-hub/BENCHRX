@@ -1,5 +1,5 @@
 import "server-only";
-import { behaviouralEvidenceSummary, comparableRuns, diagnosticSummary, readinessLabel, resultState, withholdingReason } from "@/lib/measurement-view";
+import { behaviouralEvidenceSummary, comparableRuns, diagnosticSummary, readinessLabel, resultState, scoreEvidenceNotice, withholdingReason } from "@/lib/measurement-view";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
@@ -149,7 +149,10 @@ function ScoreBar({
           <p className="mt-1 text-xs text-[var(--muted)]">{observed}/{total} conclusive{minimum === undefined ? " · legacy policy" : ` · minimum ${minimum}`}</p>
         </div>
         {sufficient && score !== null ? (
-          <span className="font-black tabular-nums text-white">{score.toFixed(0)}</span>
+          <div className="text-right">
+            <span className="font-black tabular-nums text-white">{score.toFixed(0)}</span>
+            {observed < total ? <p className="mt-1 text-xs font-bold text-amber-200">Partial coverage — scored observations only</p> : null}
+          </div>
         ) : (
           <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs font-black text-amber-200">Insufficient evidence</span>
         )}
@@ -226,7 +229,9 @@ export default async function AgentScorecardPage({ params }: PageProps) {
   const positiveReadiness = run?.readiness_status === "meets_benchmark_gates" || run?.readiness_status === "meets_structured_capability_gates";
   const productionScore = run?.production_score == null ? null : Number(run.production_score);
   const previousScore = previousRun?.production_score == null ? null : Number(previousRun.production_score);
-  const scoreDelta = !a2aCompatibility && comparableRuns(run, previousRun) && productionScore !== null && previousScore !== null ? productionScore - previousScore : null;
+  const evidenceNotice = run ? scoreEvidenceNotice(run, productionScore) : null;
+  const previousEvidenceNotice = previousRun ? scoreEvidenceNotice(previousRun, previousScore) : null;
+  const scoreDelta = !a2aCompatibility && !evidenceNotice && !previousEvidenceNotice && comparableRuns(run, previousRun) && productionScore !== null && previousScore !== null ? productionScore - previousScore : null;
   const insufficientCategories = (run?.readiness_reasons ?? ["Evidence was not sufficient under this run's recorded policy."]).map(reason => withholdingReason(reason, results));
   const behaviouralResults = results.filter(result => !isConnectorDiagnostic(result));
   const aiResults = results
@@ -311,6 +316,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                         <span className="mb-3 text-xl font-bold text-[var(--muted)]">/100</span>
                       </div>
                       <div className="mt-5 flex flex-wrap items-center gap-3">
+                        {evidenceNotice ? <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-sm font-black text-amber-200">{evidenceNotice.label}</span> : null}
                         <span className="rounded-full border border-[var(--accent)]/20 bg-[var(--accent)]/10 px-3 py-1.5 text-sm font-black text-[var(--accent)]">{readinessLabel(run, productionScore)}</span>
                         {scoreDelta !== null ? (
                           <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-sm font-black ${scoreDelta > 0 ? "bg-emerald-500/10 text-emerald-200" : scoreDelta < 0 ? "bg-red-500/10 text-red-200" : "bg-white/5 text-[var(--muted)]"}`}>
@@ -319,7 +325,7 @@ export default async function AgentScorecardPage({ params }: PageProps) {
                           </span>
                         ) : null}
                       </div>
-                      <p className="mt-4 max-w-md text-sm leading-6 text-[var(--muted)]">{positiveReadiness ? scoreSummary(productionScore) : "This numerical result does not establish production readiness. Review the recorded policy and gate findings."}</p>
+                      <p className={`mt-4 max-w-md text-sm leading-6 ${evidenceNotice ? "text-amber-100/80" : "text-[var(--muted)]"}`}>{evidenceNotice ? evidenceNotice.detail : positiveReadiness ? scoreSummary(productionScore) : "This numerical result does not establish production readiness. Review the recorded policy and gate findings."}</p>
                     </>
                   )}
                   <div className="mt-8 grid grid-cols-2 gap-3 border-t border-white/8 pt-6 sm:grid-cols-4">

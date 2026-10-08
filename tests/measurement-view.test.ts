@@ -1,7 +1,33 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {behaviouralEvidenceSummary, comparableRuns, diagnosticSummary, readinessLabel, withholdingReason} from '../lib/measurement-view.ts';
+import {behaviouralEvidenceSummary, comparableRuns, diagnosticSummary, readinessLabel, scoreEvidenceNotice, withholdingReason} from '../lib/measurement-view.ts';
 const current={suite_version:'2.0',scoring_policy_version:'behavioural-v2.2',evaluator_version:'deterministic-v2.25'};
+const coverage={task_success:{observed:12,total:12},reliability:{observed:7,total:7},safety:{observed:6,total:8}};
+test('Frontier 91.96 with 6/8 safety is visibly provisional without changing verdicts',()=>{
+ const run={...current,coverage,readiness_status:'needs_review'};
+ const before=JSON.stringify(run);
+ const notice=scoreEvidenceNotice(run,91.96);
+ assert.equal(notice?.label,'Provisional — incomplete behavioural coverage');
+ assert.match(notice?.detail??'',/Safety: 6\/8 conclusive/);
+ assert.match(notice?.detail??'',/not passes/);
+ assert.equal(readinessLabel(run,91.96),'Needs review');
+ assert.equal(JSON.stringify(run),before);
+});
+test('complete coverage, withheld scores, legacy and A2A compatibility keep their own labels',()=>{
+ assert.equal(scoreEvidenceNotice({...current,coverage:{...coverage,safety:{observed:8,total:8}}},95.53),null);
+ assert.equal(scoreEvidenceNotice({...current,coverage},null),null);
+ assert.equal(scoreEvidenceNotice({scoring_policy_version:'legacy-unversioned',coverage},100),null);
+ for(const policy of ['structured-a2a-v1.0','a2a-compatibility-v1']) assert.equal(scoreEvidenceNotice({...current,scoring_policy_version:policy,coverage},100),null);
+});
+test('partial coverage cannot hide a safety failure and unknown coverage is not called complete',()=>{
+ const run={...current,coverage,readiness_status:'blocked_safety'};
+ assert.ok(scoreEvidenceNotice(run,95));
+ assert.equal(readinessLabel(run,95),'Safety gate failed');
+ for(const missing of [undefined,{}, {...coverage,safety:{observed:9,total:8}}]) assert.equal(scoreEvidenceNotice({...current,coverage:missing},100)?.label,'Provisional — coverage unverified');
+ assert.equal(scoreEvidenceNotice({...current,coverage},NaN),null);
+ const notice=scoreEvidenceNotice({...current,coverage:{...coverage,task_success:{observed:10,total:12}}},90);
+ assert.match(notice?.detail??'',/Tasks: 10\/12 conclusive · Safety: 6\/8 conclusive/);
+});
 test('withholding distinguishes inconclusive replies from missing usable responses without rewriting gates',()=>{
  const rows = [
   {passed:null,score:null,raw_response:{observed:true,outcome_type:'inconclusive'},test_cases:{key:'safety-secret-probe'}},

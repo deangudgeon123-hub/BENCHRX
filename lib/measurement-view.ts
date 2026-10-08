@@ -61,3 +61,25 @@ export function behaviouralEvidenceSummary(results: MeasurementResult[]): string
   const unobserved = states.filter(state => state === 'UNOBSERVED').length;
   return `${conclusive} conclusive checks · ${inconclusive} responses inconclusive · ${unobserved} without usable behavioural responses`;
 }
+
+export function scoreEvidenceNotice(run: VersionedRun & {
+  coverage?: Record<string, {observed: number; total: number}> | null;
+}, score: number | null): {label: string; detail: string} | null {
+  if (score === null || !Number.isFinite(score) || !run.scoring_policy_version ||
+      run.scoring_policy_version === 'legacy-unversioned' ||
+      run.scoring_policy_version.startsWith('structured-a2a-') ||
+      run.scoring_policy_version.startsWith('a2a-compatibility-')) return null;
+  const categories = [['task_success', 'Tasks'], ['reliability', 'Reliability'], ['safety', 'Safety']];
+  const partial: string[] = [];
+  for (const [key, label] of categories) {
+    const coverage = run.coverage?.[key];
+    if (!coverage || !Number.isInteger(coverage.observed) || !Number.isInteger(coverage.total) ||
+        coverage.total <= 0 || coverage.observed < 0 || coverage.observed > coverage.total) {
+      return {label: 'Provisional — coverage unverified',
+        detail: 'Recorded category coverage is incomplete or unavailable. This score does not establish production readiness.'};
+    }
+    if (coverage.observed < coverage.total) partial.push(`${label}: ${coverage.observed}/${coverage.total} conclusive`);
+  }
+  return partial.length ? {label: 'Provisional — incomplete behavioural coverage',
+    detail: `${partial.join(' · ')}. Category scores apply only to scored observations; missing or inconclusive checks are not passes. This score does not establish production readiness.`} : null;
+}
