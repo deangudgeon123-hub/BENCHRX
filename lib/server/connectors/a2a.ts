@@ -1,4 +1,5 @@
 import {randomUUID} from 'node:crypto';
+import {A2A_SUITABILITY_MESSAGE} from '../../connectors/a2a-suitability.ts';
 import {publicConnectorIO, type ConnectorIO, type ConnectorProvider} from './interface.ts';
 import type {ValidatedHttpsTarget} from '../pinned-https.ts';
 import {RuntimeConnectorError as Fault, object, parseJson, pinRuntime, publicRuntimeUrl, checkHttp, requestLimits, sseFrames, runtimeDiagnostic, textDiagnosis, childTarget} from './runtime-common.ts';
@@ -175,7 +176,7 @@ function prepareInput(connection: Connection, input: {hasMessage: boolean; messa
     if (textSkill) {
       return {
         kind: 'text',
-        value: 'Reply briefly to confirm this BENCHRX A2A connection test was received.',
+        value: A2A_SUITABILITY_MESSAGE,
         outputModes: acceptedOutputs(connection, textSkill),
       };
     }
@@ -192,7 +193,7 @@ function prepareInput(connection: Connection, input: {hasMessage: boolean; messa
     if (connection.skills.length === 0 && connection.defaultInputModes.includes('text/plain')) {
       return {
         kind: 'text',
-        value: 'Reply briefly to confirm this BENCHRX A2A connection test was received.',
+        value: A2A_SUITABILITY_MESSAGE,
         outputModes: acceptedOutputs(connection),
       };
     }

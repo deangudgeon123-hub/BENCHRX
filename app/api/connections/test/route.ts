@@ -55,6 +55,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ok: true,
       response: "Connection succeeded; response content is retained privately.",
+      ...(result.suitability ? {suitability: result.suitability} : {}),
     });
   } catch {
     // Parser/transport exceptions can contain request excerpts or secrets.

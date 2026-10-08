@@ -4,7 +4,19 @@ import {createA2AConnector} from '../lib/server/connectors/a2a.ts';
 import {invokeNormalizedConnector, type ConnectorIO} from '../lib/server/connectors/interface.ts';
 import {PinnedRequestTimeoutError} from '../lib/server/pinned-https.ts';
 import {runtimeEndpoint} from '../lib/server/connectors/runtime-config.ts';
+import {A2A_SUITABILITY_MESSAGE} from '../lib/connectors/a2a-suitability.ts';
 const url = 'https://agent.example';
+test('suitability probe changes connection checks only, not benchmark messages',async()=>{
+ for(const modern of [false,true]) {
+  const f=fixture({modern});
+  await f.run({_benchrx_connection_test:true,message:'ignored'});
+  await f.run({message:'the actual benchmark question'});
+  const first=f.calls[0].body.params as Record<string,any>;
+  const second=f.calls[1].body.params as Record<string,any>;
+  assert.equal(first.message.parts[0].text,A2A_SUITABILITY_MESSAGE);
+  assert.equal(second.message.parts[0].text,'the actual benchmark question');
+ }
+});
 const card = (modern = false, streaming = false) => ({name: 'Fixture', skills: [], defaultInputModes: ['text/plain'], defaultOutputModes: ['text/plain'], capabilities: {streaming}, ...(modern ? {supportedInterfaces: [{protocolBinding: 'JSONRPC', protocolVersion: '1.0', url: url + '/rpc', tenant: 'fixture'}]} : {protocolVersion: '0.3.0', url: url + '/rpc'})});
 const message = (text: string, modern = false) => ({...(modern ? {} : {kind: 'message'}), role: modern ? 'ROLE_AGENT' : 'agent', messageId: 'm', parts: [{...(modern ? {} : {kind: 'text'}), text}]});
 function fixture(options: {card?: unknown; modern?: boolean; stream?: boolean; status?: number; result?: unknown; events?: unknown[]; error?: Error} = {}) {

@@ -42,7 +42,9 @@ test('HTTP failures, redirects, timeouts and invalid targets fail preflight with
 test('adapter preflight uses authenticated private config and correct request budgets',async()=>{
  for(const provider of ['a2a','gradio','generic','langgraph','openai-agents']){
   const {io,calls}=fakeIO();
-  assert.deepEqual(await preflightConnection(`https://benchrx.fixture/api/adapters/${provider}?target=https%3A%2F%2Fagent.fixture&inputs=%5B%22%7B%7Bmessage%7D%7D%22%5D`,io),{ok:true});
+  const result=await preflightConnection(`https://benchrx.fixture/api/adapters/${provider}?target=https%3A%2F%2Fagent.fixture&inputs=%5B%22%7B%7Bmessage%7D%7D%22%5D`,io);
+  assert.equal(result.ok,true);
+  if(result.ok) assert.equal(result.suitability?.status,provider==='a2a'?'unverified':undefined);
   assert.equal(calls[0].url,`https://benchrx.fixture/api/adapters/${provider}`);
   assert.equal(calls[0].options.headers?.Authorization,`Bearer ${'a'.repeat(32)}`);
   assert.equal(calls[0].options.headers?.['x-vercel-protection-bypass'],'private-bypass');
@@ -51,6 +53,20 @@ test('adapter preflight uses authenticated private config and correct request bu
   assert.equal(body._benchrx_connection_test,provider==='a2a');
   assert.equal(calls[0].options.timeoutMs,provider==='gradio'?135000:65000);
  }
+});
+test('A2A suitability is advisory and cannot turn remote content into trusted transport status',async()=>{
+ for(const response of ['Whisper: name a skill to run one','Sidequest is deterministic and read-only','BENCHRX_CONNECTION_OK']) {
+  const {io,calls}=fakeIO(200,JSON.stringify({response,inputModes:['text/plain'],suitability:{status:'candidate'},ok:true}));
+  const result=await preflightConnection('https://benchrx.fixture/api/adapters/a2a',io);
+  assert.equal(result.ok,true);
+  if(result.ok) assert.equal(result.suitability?.status,response==='BENCHRX_CONNECTION_OK'?'candidate':'unverified');
+  assert.equal(calls.length,1); // reuses the connection test, no extra upstream request
+  assert.ok(!JSON.stringify(result).includes('Whisper:'));
+ }
+ const failed=fakeIO(502,JSON.stringify({response:'BENCHRX_CONNECTION_OK',ok:true}));
+ assert.equal((await preflightConnection('https://benchrx.fixture/api/adapters/a2a',failed.io)).ok,false);
+ const native=fakeIO(200,JSON.stringify({response:'BENCHRX_CONNECTION_OK',provider:'a2a'}));
+ assert.deepEqual(await preflightConnection('https://native.fixture',native.io),{ok:true});
 });
 test('only trusted adapter diagnostics are exposed and configuration failures stop before requests',async(t)=>{
  const {io}=fakeIO(502,JSON.stringify({error:'PRIVATE_ERROR',diagnostics:{code:'protocol_error',stage:'protocol',httpStatus:422,detail:'PRIVATE_DETAIL'}}));

@@ -37,6 +37,7 @@ export default function BenchmarkPage() {
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionType, setConnectionType] = useState<ConnectionType>("native");
   const [connectionStatus, setConnectionStatus] = useState("");
+  const [suitabilityWarning, setSuitabilityWarning] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState<{ name: string; slug: string } | null>(null);
   const [recent, setRecent] = useState<RecentBenchmark[]>([]);
@@ -61,6 +62,7 @@ export default function BenchmarkPage() {
   async function testConnection(formElement: HTMLFormElement) {
     const form = new FormData(formElement);
     setConnectionStatus("");
+    setSuitabilityWarning("");
     setError("");
 
     const payload =
@@ -130,6 +132,10 @@ export default function BenchmarkPage() {
 
       const preview = String(data.response ?? "").replace(/\s+/g, " ").trim().slice(0, 140);
       setConnectionStatus(preview ? `Connected. Response: ${preview}` : "Connected successfully.");
+      if (connectionType === "a2a" && typeof data.suitability?.message === "string") {
+        if (data.suitability.status === "unverified") setSuitabilityWarning(data.suitability.message);
+        else setConnectionStatus(data.suitability.message);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Connection test failed.");
     } finally {
@@ -308,6 +314,7 @@ export default function BenchmarkPage() {
                   onClick={() => {
                     setConnectionType(type as ConnectionType);
                     setConnectionStatus("");
+                    setSuitabilityWarning("");
                     setError("");
                   }}
                   className={`rounded-2xl border p-4 text-left transition ${
@@ -415,6 +422,7 @@ export default function BenchmarkPage() {
                   </select>
                 </label>
                 <p className="mt-3 text-xs leading-5 text-[var(--muted)]">Agent Card discovery is automatic. Supports public A2A 0.3 and 1.0 JSON-RPC/HTTP+JSON agents. Authentication and required extensions are not supported yet.</p>
+                <p className="mt-2 text-xs leading-5 text-amber-100/80">Use Test connection before benchmarking. It also checks one harmless text instruction; specialised skill-based agents may not fit the general conversational suite even when connected.</p>
                 <button type="button" disabled={isTestingConnection} onClick={event => {const form = event.currentTarget.closest("form"); if (form) void testConnection(form);}} className="mt-4 rounded-full border border-white/10 px-4 py-2.5 text-sm font-black disabled:opacity-60">
                   {isTestingConnection ? "Testing connection..." : "Test connection"}
                 </button>
@@ -538,6 +546,13 @@ export default function BenchmarkPage() {
             {connectionStatus ? (
               <div className="mt-5 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
                 {connectionStatus}
+              </div>
+            ) : null}
+
+            {suitabilityWarning ? (
+              <div role="status" className="mt-5 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                <p className="font-bold">General-suite suitability unverified</p>
+                <p className="mt-1">{suitabilityWarning}</p>
               </div>
             ) : null}
 
