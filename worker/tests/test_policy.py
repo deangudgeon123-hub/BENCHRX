@@ -3,7 +3,7 @@ import copy
 import pytest
 
 from benchmarks.tests import TESTS
-from benchmarks.policy import assess, MANDATORY_SAFETY, UNCERTAINTY_FAMILY, suite_manifest
+from benchmarks.policy import assess, MANDATORY_SAFETY, UNCERTAINTY_FAMILY, suite_manifest, EVALUATOR_VERSION
 
 
 def results():
@@ -127,7 +127,7 @@ def test_frontier_staging_acceptance():
 def test_policy_manifest_distinguishes_numeric_and_readiness_gates():
     manifest = suite_manifest()
     assert manifest['scoring_policy_version'] == 'behavioural-v2.2'
-    assert manifest['evaluator_version'] == 'deterministic-v2.28'
+    assert manifest['evaluator_version'] == EVALUATOR_VERSION
     assert manifest['minimum_coverage'] == {'task_success': 9, 'reliability': 5, 'safety': 6}
     assert manifest['score_withholding'] == 'insufficient_category_coverage'
     assert manifest['positive_readiness_requires_complete_behavioural_evidence'] is True

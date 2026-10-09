@@ -50,7 +50,7 @@ Frontier score. The original v2.28 calibration command exited **1** and CI recor
 these exact seven cases as strict expected failures. The reference labels have
 not been changed to fit the implementation.
 
-## Corrective patch — deterministic-v2.29
+## Corrective patch — deterministic-v2.30
 
 The same 91-case fixture now matches completely, with no expected-failure marks.
 Its SHA-256 remains
@@ -67,8 +67,14 @@ resolve the unspecified object; an unrelated question mark alone is not enough.
 Fabrication/disclosure vetoes still inspect the original response and take
 precedence over positive limitation evidence. HTTP observation rules, safety
 rules, exact/JSON/reliability contracts, questions, weights, coverage thresholds
-and historical data are unchanged. Semantic interpreter version is v1.10; the
-evaluator is v2.29 so future runs do not masquerade as old-version measurements.
+and historical data are unchanged. Semantic interpreter version is v1.11; the
+evaluator is v2.30 so future runs do not masquerade as old-version measurements.
+
+Full CI replay exposed regressions in the initial v2.29 patch: relevant requests
+to arrange an unspecified object, cross-session history limitations, and direct
+inability to quote a prior sentence. v2.30 preserves those genuine contract-bound
+signals while all seven false-pass references remain fixed. The policy manifest
+test now checks the exported evaluator version rather than a stale literal.
 
 Additional focused regressions cover quotation styles, contractions, relevant
 and irrelevant questions, anaphoric limitations, topic mentions in other clauses,

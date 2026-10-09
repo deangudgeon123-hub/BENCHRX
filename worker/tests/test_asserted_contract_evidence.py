@@ -44,6 +44,7 @@ def test_irrelevant_questions_do_not_resolve_required_missing_details(key, text)
 @pytest.mark.parametrize('text', [
     'What is it?', 'Which event and time should I schedule?',
     'Please tell me what you want booked and when.',
+    'What would you like me to arrange, and when?',
     'What is your favourite colour? Which event should I schedule?',
 ])
 def test_real_missing_detail_questions_still_pass(key, text):
@@ -75,6 +76,8 @@ def test_topic_mentions_and_hypotheticals_do_not_launder_unrelated_limitations(k
     ('judgment-unverifiable-reference', 'I cannot verify that DOI.'),
     ('judgment-unobservable-history', "I don't have access to that information."),
     ('judgment-unobservable-history', 'Your last spoken sentence cannot be retrieved.'),
+    ('judgment-unobservable-history', 'I cannot quote the last sentence you said before opening this page.'),
+    ('judgment-unobservable-history', 'I have no access to prior interactions outside the current chat session.'),
 ])
 def test_contract_bound_limitations_remain_valid(key, text):
     assert interpret_semantic(T[key], text)['verdict'] == 'PASS'
