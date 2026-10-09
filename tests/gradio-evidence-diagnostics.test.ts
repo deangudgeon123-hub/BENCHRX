@@ -35,5 +35,8 @@ test('structural diagnostics distinguish missing evidence without returning cont
     assert.ok(!JSON.stringify(result).includes(marker));
   }
   assert.ok(!JSON.stringify(logs).includes(marker));
-  assert.deepEqual(logs[0], ['BENCHRX Gradio output unavailable', {stage: 'output', code: 'empty_assistant', stepIndex: 0}]);
+  assert.deepEqual(logs[0], ['BENCHRX Gradio output unavailable', {
+    stage: 'output', code: 'empty_assistant', stepIndex: 0,
+    gradioCompletion: {terminalEvent: 'complete', outputIndex: 0, outputCount: 1, selectedType: 'string'},
+  }]);
 });
