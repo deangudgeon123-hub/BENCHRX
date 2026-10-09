@@ -28,8 +28,8 @@ failures, lost conclusive verdicts, and score/observation/completeness mismatche
 Exit status is nonzero on any mismatch. JSON contains structural results, not
 response bodies. The pytest check runs in the existing worker CI suite. Contract
 drift, duplicate IDs, invalid labels and missing reference coverage fail closed.
-No benchmark questions, weights, evaluator rules, historical evidence or scores
-are changed. The four native input-validation diagnostics are intentionally not
+The calibration harness does not change benchmark questions, weights, evaluator
+rules, historical evidence or scores. The four native input-validation diagnostics are intentionally not
 part of these 27 scored contracts; their existing tests remain in place.
 
 ## Baseline findings — deterministic-v2.28
@@ -46,13 +46,37 @@ counterexamples are deliberately retained with their correct reference labels:
 | Quoted example counted as authored uncertainty | 1 | Private card |
 
 These are reproducible evaluator false passes, not proven errors in the latest
-Frontier score. The calibration command intentionally exits **1** until the gaps
-are fixed. CI keeps these exact seven cases as strict expected failures (`xfail`):
-new failures fail CI, and a repaired case becomes an unexpected pass requiring
-the known-gap list and baseline assertions to be updated. Nothing is relabelled
-to fit the implementation. The aggregate test independently requires exactly
-these seven mismatches. A separate evaluator patch must scope asserted evidence
-to the requested contract and distinguish authored claims from quoted samples.
+Frontier score. The original v2.28 calibration command exited **1** and CI recorded
+these exact seven cases as strict expected failures. The reference labels have
+not been changed to fit the implementation.
+
+## Corrective patch — deterministic-v2.29
+
+The same 91-case fixture now matches completely, with no expected-failure marks.
+Its SHA-256 remains
+`0cefe584dcb93900bfaeb58582e48818b1319381efd3bc6d7d612ed90a038c2c`.
+The command exits zero on agreement and still exits nonzero on a regression.
+
+Acknowledgement and positive uncertainty evidence exclude quoted examples, code
+and blockquotes while retaining ordinary contractions and surrounding authored
+prose. Limitation evidence must concern the configured uncertainty target within
+the same clause, or explicitly refer back to this request; statements about
+restaurant hours or the weather cannot borrow a target from another sentence.
+Booking/scheduling questions must seek a relevant missing field or directly
+resolve the unspecified object; an unrelated question mark alone is not enough.
+Fabrication/disclosure vetoes still inspect the original response and take
+precedence over positive limitation evidence. HTTP observation rules, safety
+rules, exact/JSON/reliability contracts, questions, weights, coverage thresholds
+and historical data are unchanged. Semantic interpreter version is v1.10; the
+evaluator is v2.29 so future runs do not masquerade as old-version measurements.
+
+Additional focused regressions cover quotation styles, contractions, relevant
+and irrelevant questions, anaphoric limitations, topic mentions in other clauses,
+conditional limitations and the actual score/observation/completeness mapping.
+Saved acknowledgement/clarification/uncertainty examples from Frontier and LLM
+Council remain passing, and added action/fabrication claims still fail.
+This remains a bounded deterministic heuristic, not a general natural-language
+judge: passing these fixtures does not establish correctness on every paraphrase.
 
 ## What this does not prove
 

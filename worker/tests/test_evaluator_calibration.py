@@ -8,24 +8,19 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 CALIBRATION = runpy.run_path(str(ROOT / 'scripts/evaluator_calibration.py'))
-KNOWN_FALSE_PASSES = {
-    'quoted-ack-not-receipt', 'unrelated-booking-question', 'unrelated-scheduling-question',
-    'unrelated-card-uncertainty', 'unrelated-doi-uncertainty', 'unrelated-history-uncertainty',
-    'quoted-card-uncertainty',
-}
 FIXTURE, _ = CALIBRATION['load_fixture']()
 
 
 @pytest.mark.asyncio
-async def test_baseline_reports_known_gaps_without_relabelling_or_claiming_accuracy():
+async def test_fixed_calibration_matches_without_relabelling_or_claiming_accuracy():
     report = await CALIBRATION['calibrate']()
     assert report['independent_review'] is False
     assert 'not real-world accuracy' in report['limitation']
     mismatches = {row['id'] for row in report['cases'] if row['mismatched_fields']}
-    assert mismatches == KNOWN_FALSE_PASSES
+    assert mismatches == set()
     assert report['summary']['case_count'] == 91
-    assert report['summary']['matched_cases'] == 84
-    assert report['summary']['false_passes'] == len(KNOWN_FALSE_PASSES)
+    assert report['summary']['matched_cases'] == 91
+    assert report['summary']['false_passes'] == 0
     assert report['summary']['false_failures'] == 0
     assert report['summary']['lost_conclusive_verdicts'] == 0
     assert set(report['by_category']) == {'task_success', 'reliability', 'safety'}
@@ -35,9 +30,7 @@ async def test_baseline_reports_known_gaps_without_relabelling_or_claiming_accur
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('case', [
-    pytest.param(case, id=case['id'], marks=pytest.mark.xfail(
-        strict=True, reason='Known v2.28 false pass; reference label must not change to hide it'
-    ) if case['id'] in KNOWN_FALSE_PASSES else ()) for case in FIXTURE['cases']
+    pytest.param(case, id=case['id']) for case in FIXTURE['cases']
 ])
 async def test_fixed_contract_reference(case):
     row = await CALIBRATION['evaluate_case'](case)
@@ -114,15 +107,31 @@ async def test_real_wrong_evaluator_result_is_reported_not_relabelled(monkeypatc
 
 
 @pytest.mark.parametrize('json_output', [False, True])
-def test_cli_reports_mismatches_and_exits_nonzero(monkeypatch, capsys, json_output):
+def test_cli_reports_fixed_calibration_and_exits_zero(monkeypatch, capsys, json_output):
     monkeypatch.setattr('sys.argv', ['evaluator_calibration.py'] + (['--json'] if json_output else []))
-    assert CALIBRATION['main']() == 1
+    assert CALIBRATION['main']() == 0
     output = capsys.readouterr().out
     if json_output:
         report = json.loads(output)
-        assert report['summary']['false_passes'] == 7
+        assert report['summary']['false_passes'] == 0
         assert report['independent_review'] is False
         assert 'Example:' not in output
     else:
-        assert '84/91' in output and 'False passes: 7' in output
-        assert 'MISMATCH quoted-ack-not-receipt' in output
+        assert '91/91' in output and 'False passes: 0' in output
+        assert 'MISMATCH' not in output
+
+
+def test_cli_still_fails_on_a_real_evaluator_regression(monkeypatch, capsys):
+    original = CALIBRATION['evaluator'].run_test
+
+    async def corrupt_after_request(*args, **kwargs):
+        result = await original(*args, **kwargs)
+        result.update(passed=True, score=100, observed=True, evidence_complete=True)
+        return result
+
+    monkeypatch.setattr(CALIBRATION['evaluator'], 'run_test', corrupt_after_request)
+    monkeypatch.setattr('sys.argv', ['evaluator_calibration.py', '--json'])
+    assert CALIBRATION['main']() == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report['summary']['false_passes'] > 0
+    assert report['summary']['mismatch_count'] > 0
