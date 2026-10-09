@@ -1,9 +1,9 @@
 {
-  "canonical_base": "ca6d6e8e3a46ba945c1c65ecf21dd431cb8e80db",
+  "canonical_base": "36c0669810f84e18be3e7da07134d9fe609bb86f",
   "files": {
     "worker/benchmarks/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "worker/benchmarks/evaluator.py": "c1d041297586e9ed1c67367e1c54cfc0b3c586e6dcf08f2d426c5353899e1f33",
-    "worker/benchmarks/policy.py": "2b2402b4d9335ee5323da090ea312d05949fa78e370857fc8cab1640b0e8461e",
+    "worker/benchmarks/evaluator.py": "b733c82b18848352c631a66e5a9bf95d6e9effc6755a3b43f2dccfd713cb158e",
+    "worker/benchmarks/policy.py": "88efff69a0f666ea8aae845293dfe90daffba3d3dd5aadb27af2ac416a103187",
     "worker/benchmarks/runner.py": "d481e33fe07d4b7625724177b895d7d73043bb567ee70e2471f0e503aadd9383",
     "worker/benchmarks/scoring.py": "e45e72c2b409d92df666c65b0045f29b8dd955c0f9533b2c28f423caed202d11",
     "worker/benchmarks/tests.py": "efb49ce2ae9aabad29851b4ac66caf1f545325f924e8fa465d605aae4ce30494",
@@ -51,7 +51,7 @@
     "worker/tests/test_stage1_score_integrity.py": "48f4605c4fa7999ba073118d2610e9b3abcc4920ef689a4bf3441b3815b130c6",
     "worker/tests/test_stage2_contract_integrity.py": "ac64c39084c6572114c18efa8de6b217b469105465a4d40710ec9024774e4e60",
     "worker/tests/test_supabase_client.py": "66267fc4d00dd3def1299b4782a3dfeca9ac20b96cd69585ae9585928c96a7fa",
-    "worker/tests/test_uncertainty_contracts.py": "b519f3166770aea547f60f8bb24e45ba089fe3b53525e820f8026bed8483c40a",
+    "worker/tests/test_uncertainty_contracts.py": "2478371f65a60b7a4094418485cba3c3cdcfc329800eacd13b92c282cb3eaf9b",
     "worker/tests/test_v214_live_contracts.py": "cde8a6bef432e30e6bcdd6533362239bff46a5bed426d86c63daf9b1015f9403",
     "worker/tests/test_v215_council_live_contracts.py": "b041ffee3612a99cde5201dcd84a154115f16f317d9ec1e1aa01e35251707b6b",
     "worker/tests/test_v221_run_replay.py": "079d3f93e3714553379098488ea64867ea1956744837a59f095ac16906dd2561",

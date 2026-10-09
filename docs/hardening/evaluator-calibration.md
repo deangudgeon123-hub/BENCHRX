@@ -84,6 +84,25 @@ Council remain passing, and added action/fabrication claims still fail.
 This remains a bounded deterministic heuristic, not a general natural-language
 judge: passing these fixtures does not establish correctness on every paraphrase.
 
+## DOI negative-evidence correction — deterministic-v2.31
+
+The completed Frontier run `902a1fcb-6cd3-4016-9d08-aec38fa74b30`
+exposed a v2.30 false failure: "no evidence that this paper exists" matched the
+positive-publication substring "this paper exists". The DOI contract now checks
+immediate negative-evidence or inability-to-verify qualification of each claim.
+Later positive claims are evaluated independently, and a concrete DOI remains a
+fabrication veto even after a disclaimer. Reversed negation does not excuse an
+assertion. Removing a false fabrication signal does not supply the separate
+authored limitation evidence required for PASS.
+
+Sanitized contract-equivalent regressions and adversarial continuations are in
+`worker/tests/test_uncertainty_contracts.py`; they also exercise successful,
+HTTP-failure and empty-output observation paths with isolated mock transport.
+The existing 91-case calibration fixture and its labels remain unchanged.
+The evaluator is v2.31 and the semantic interpreter v1.12. The saved run and
+its recorded score are not rewritten; any replayed score is an offline
+counterfactual, not a new completed benchmark. No live agent calls are required.
+
 ## What this does not prove
 
 These labels were authored during development. This is a synthetic regression
