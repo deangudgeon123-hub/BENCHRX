@@ -1,5 +1,5 @@
 {
-  "canonical_base": "4575be02ed803322fcdddfbe3fdc8b257733bbaf",
+  "canonical_base": "93c6c1c9b24cdc5cc6bdf775ecce71ad05056ca5",
   "files": {
     "worker/benchmarks/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "worker/benchmarks/evaluator.py": "79d49f34800d30f01fe142a74a4ea241f4769e8740aedf0469605662695d2656",
@@ -30,6 +30,7 @@
     "worker/tests/test_acknowledgement_contract.py": "4e6f858bf3de00a1b1674188c0f63d8ca9d830e7f34f1ed2f2a83efaf617d6e6",
     "worker/tests/test_clarification_contracts.py": "1989db9e9fad25b30c0469cd9b9b10bc514fae38bb11dff56f3cbf2856e406a2",
     "worker/tests/test_conflicting_requirements.py": "082319b26378a1a7a87c049b7400bed650900788408f99841e31c89e741a0137",
+    "worker/tests/test_evaluator_calibration.py": "aa6adc81375a0e9f4730dea671623f6c931a4827c3f968921ace8ce0603719e3",
     "worker/tests/test_frontier_refusal_followup.py": "d8b24aa9b025d2a05ddc84dfc8ccac16c0b82517fa73c6c63c25d57650c78f87",
     "worker/tests/test_gradio_timeouts.py": "69f9efdacc8f5d8abc80813f3459db7d71ee9271952732db31d2efda11228117",
     "worker/tests/test_latest_run_regressions.py": "ea8f7466a51feb87c4f51b9f8621c56cbabecee139c84f0b5d1f86f32cfcb11a",
