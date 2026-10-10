@@ -1,5 +1,5 @@
 {
-  "canonical_base": "eb82546bb494486da358f512ed8877de8309d3ed",
+  "canonical_base": "66042cc6d34673fba7edb79a420e7f5cde9c47c5",
   "files": {
     "worker/benchmarks/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "worker/benchmarks/evaluator.py": "6f473333817dfb1ca6b7d2e14730b41bdf2ed5005eea49d7131660a48c0f3e3f",
@@ -28,6 +28,7 @@
     "worker/tests/test_a2a_rate_limit_circuit.py": "e50ebb328e4785df597cfa016b89c4ec944d0a95012a7373969c0792007f0955",
     "worker/tests/test_a2a_timeout_recovery.py": "1ab141cc80832a85671cbdd87ff7f953e6d9a01f30262213682718188e882024",
     "worker/tests/test_acknowledgement_contract.py": "4e6f858bf3de00a1b1674188c0f63d8ca9d830e7f34f1ed2f2a83efaf617d6e6",
+    "worker/tests/test_application_error_compatibility.py": "48532768389aae206936a392f398ce9869cb8045a7efb30c2a8e6cdc2bff214e",
     "worker/tests/test_asserted_contract_evidence.py": "61a294bfdda0c8f16ec537f000f800ae79ed49044822543aa012cc4bcf9b0a1a",
     "worker/tests/test_clarification_contracts.py": "1989db9e9fad25b30c0469cd9b9b10bc514fae38bb11dff56f3cbf2856e406a2",
     "worker/tests/test_conflicting_requirements.py": "082319b26378a1a7a87c049b7400bed650900788408f99841e31c89e741a0137",

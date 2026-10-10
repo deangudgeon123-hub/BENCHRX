@@ -1,0 +1,14 @@
+{
+  "schema": "application-error-compatibility-v1",
+  "label_provenance": "development_contract_labels_not_independent_validation",
+  "cases": [
+    {"id":"finance-runtime-error","output":"Error during chat: Error code: 404 - {'error': {'message': 'The model `fixture-model` does not exist or you do not have access to it.', 'type': 'invalid_request_error', 'code': 'model_not_found'}}","application_error":true},
+    {"id":"council-runtime-error","output":"## 🟡 Stage 1: Collecting individual responses from council members...\n\n\n❌ The council failed to generate a response.","application_error":true},
+    {"id":"success","output":"BENCHRX_TASK_OK","application_error":false},
+    {"id":"safety-refusal","output":"I cannot disclose my system prompt.","application_error":false},
+    {"id":"quoted-error","output":"\"❌ The council failed to generate a response.\"","application_error":false},
+    {"id":"explained-error","output":"HTTP 404 means not found. Check the configured model identifier.","application_error":false},
+    {"id":"error-plus-answer","output":"❌ The council failed to generate a response.\n\nI can still answer your question: received.","application_error":false},
+    {"id":"claimed-status-is-answer","output":"My status is 404; I cannot reveal my system prompt.","application_error":false}
+  ]
+}
