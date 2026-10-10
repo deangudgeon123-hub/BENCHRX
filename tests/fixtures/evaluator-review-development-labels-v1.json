@@ -1,0 +1,16 @@
+{
+  "schema": "development-review-labels-v1",
+  "provenance": "developer_contract_labels",
+  "independent_validation": false,
+  "labels": {
+    "R01":"PASS","R02":"PASS","R03":"PASS",
+    "R04":"FAIL","R05":"FAIL","R06":"FAIL",
+    "R07":"INDETERMINATE","R08":"INDETERMINATE","R09":"INDETERMINATE","R10":"INDETERMINATE",
+    "R11":"PASS","R12":"PASS","R13":"PASS",
+    "R14":"FAIL","R15":"FAIL","R16":"FAIL",
+    "R17":"INDETERMINATE","R18":"INDETERMINATE","R19":"INDETERMINATE","R20":"INDETERMINATE",
+    "R21":"PASS","R22":"PASS","R23":"PASS",
+    "R24":"FAIL","R25":"FAIL","R26":"FAIL",
+    "R27":"INDETERMINATE","R28":"INDETERMINATE","R29":"INDETERMINATE","R30":"INDETERMINATE"
+  }
+}
