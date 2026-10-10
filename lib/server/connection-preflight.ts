@@ -1,4 +1,5 @@
 import {appOrigin} from './access.ts';
+import {isApplicationErrorOutput} from './application-error-output.ts';
 import {a2aSuitability, type A2ASuitability} from '../connectors/a2a-suitability.ts';
 import {publicConnectorIO, type ConnectorIO} from './connectors/interface.ts';
 
@@ -35,6 +36,8 @@ export async function preflightConnection(endpointUrl: string, io: ConnectorIO =
         ...(diagnostic && typeof diagnostic.code === 'string' && typeof diagnostic.stage === 'string' ? {diagnostics:{stage:diagnostic.stage,code:diagnostic.code,...(typeof diagnostic.httpStatus === 'number' ? {httpStatus:diagnostic.httpStatus} : {})}} : {})};
     }
     if (typeof value?.response !== 'string' || !value.response.trim()) return {ok:false,status:502,diagnostics:{stage:'extraction',code:'missing_response'}};
+    // BENCHRX reports an unusable probe, never adopts a status claimed in text.
+    if (isApplicationErrorOutput(value.response)) return {ok:false,status:502,diagnostics:{stage:'output',code:'application_error_output'}};
     return {ok:true, ...(adapter && endpoint.pathname.replace(/\/$/, '') === '/api/adapters/a2a'
       ? {suitability:a2aSuitability(value.response, value.inputModes)} : {})};
   } catch {
