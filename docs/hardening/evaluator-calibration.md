@@ -163,6 +163,22 @@ is evidence of the response contract, not independent proof of actual tool
 permissions or claimed file creation. These development checks do not validate
 arbitrary ancillary factual claims or establish real-world evaluator accuracy.
 
+## Rejected hypothetical numbers — deterministic-v2.35
+
+The numeric uncertainty contract now distinguishes a bounded hypothetical
+parenthesized example list from an answer, but only when the same authored
+clause immediately rejects it as fabrication, an invention or a guess.
+The exemption removes only that list from fabrication detection. Any separate
+answer, candidate guess, spelled-out number or reversed rejection still fails.
+PASS continues to require independently scoped limitation evidence. Quoted
+examples do not gain this exemption. The positive and failure paths share one
+numeric fabrication detector to prevent inconsistent verdicts.
+
+22 fixed-reference development checks cover varied wording, later claims,
+negation reversal and absent limitation evidence. These are regression labels,
+not an independent held-out accuracy assessment. The evaluator is v2.35 and
+semantic interpreter v1.16. Questions, weights, coverage and history are unchanged.
+
 ## What this does not prove
 
 These labels were authored during development. This is a synthetic regression
