@@ -1,14 +1,15 @@
-import {requireOperator, readBoundedJson} from '../access.ts';
+import {requireSameOrigin, readBoundedJson} from '../access.ts';
 import {gradioConnector} from './gradio.ts';
 import type {ConnectorDiscovery} from '../../connectors/types.ts';
 
-// Bounded per-process admission supplements operator authentication. No public onboarding.
+// Public metadata discovery needs no operator credentials. Retain same-origin
+// admission, bounded work and the connector's public HTTPS transport protections.
 export function createDiscoveryHandler(discover: (url: string) => Promise<ConnectorDiscovery> = url => gradioConnector.discover(url)) {
   let active = 0;
   let starts: number[] = [];
   const json = (body: unknown, status = 200) => Response.json(body, {status, headers: {'Cache-Control': 'no-store'}});
   return async (request: Request): Promise<Response> => {
-    const denied = requireOperator(request);
+    const denied = requireSameOrigin(request);
     if (denied) return denied;
     const now = Date.now();
     starts = starts.filter(time => now - time < 60000);
