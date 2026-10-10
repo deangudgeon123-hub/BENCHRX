@@ -20,10 +20,18 @@ try {
   await new Promise(r=>setTimeout(r,100));
  }
  assert.ok(ready,'Production server started');
- for(const path of ['/api/connections/discover','/api/adapters/generic','/api/adapters/gradio','/api/adapters/storkie','/api/adapters/a2a','/api/adapters/langgraph','/api/adapters/openai-agents']){
+ for(const path of ['/api/adapters/generic','/api/adapters/gradio','/api/adapters/storkie','/api/adapters/a2a','/api/adapters/langgraph','/api/adapters/openai-agents']){
   const response=await fetch(origin+path,{method:'POST',body:'{"message":"fixture"}'});
   assert.equal(response.status,401,path);
  }
+ for(const headers of [{}, {Origin:'https://evil.example'}]){
+  const response=await fetch(origin+'/api/connections/discover',{method:'POST',headers,body:'{}'});
+  assert.equal(response.status,403,'Discovery requires same origin');
+  assert.equal(response.headers.get('www-authenticate'),null,'Discovery must not challenge for operator credentials');
+ }
+ const publicDiscovery=await fetch(origin+'/api/connections/discover',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:'{}'});
+ assert.equal(publicDiscovery.status,400,'Same-origin discovery reaches input validation without Basic Auth');
+ assert.equal(publicDiscovery.headers.get('www-authenticate'),null);
  const untrustedRerun=await fetch(origin+'/api/agents/fixture/rerun',{method:'POST'});
  assert.equal(untrustedRerun.status,403,'Reruns require same-origin requests');
  const sameOriginRerun=await fetch(origin+'/api/agents/fixture/rerun',{method:'POST',headers:{Origin:origin}});
