@@ -1,4 +1,5 @@
 import {GradioInvocationError} from '../gradio-errors.ts';
+import {isApplicationErrorOutput} from '../application-error-output.ts';
 import {discoverGradio} from './gradio-discovery.ts';
 import {extractAssistantText, assistantOutputDiagnostic} from '../gradio-output.ts';
 import {parsePlan, executeGradioPlan} from '../gradio-workflow.ts';
@@ -41,7 +42,14 @@ export function createGradioConnector(io: ConnectorIO = publicConnectorIO): Conn
     },
     extract,
     diagnose(c, result) {
-      if (extract(c, result)) return {outcome: 'observed_response', status: 200};
+      const text = extract(c, result);
+      if (isApplicationErrorOutput(text)) return {
+        outcome: 'unobserved_response', status: 502,
+        error: 'The upstream application returned an error-only output; agent behaviour was not observed.',
+        diagnostics: {stage:'output', code:'application_error_output', stepIndex:c.plan.finalStepIndex,
+          ...(result.completions[c.plan.finalStepIndex] ? {gradioCompletion:result.completions[c.plan.finalStepIndex]} : {})},
+      };
+      if (text) return {outcome: 'observed_response', status: 200};
       const diagnostics: ConnectorDiagnostics = {
         stage: 'output', code: assistantOutputDiagnostic(result.selected[c.plan.finalStepIndex]), stepIndex: c.plan.finalStepIndex,
         ...(result.completions[c.plan.finalStepIndex] ? {gradioCompletion: result.completions[c.plan.finalStepIndex]} : {}),
