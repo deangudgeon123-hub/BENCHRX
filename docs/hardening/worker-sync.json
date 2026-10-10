@@ -1,9 +1,9 @@
 {
-  "canonical_base": "b2069638c2d56f2f36b86de641fc164d04cbbdc5",
+  "canonical_base": "62871b1bebba33d77a8bd46541a07aa182f4a8bc",
   "files": {
     "worker/benchmarks/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "worker/benchmarks/evaluator.py": "904a8ba1b535095bb761b9c028ee8aa7ead67a20424089252326ae77a6aaf326",
-    "worker/benchmarks/policy.py": "4cf58b3060847902693fa6b5d591b013f765504b19ccaa97dbe85830d68f84a2",
+    "worker/benchmarks/evaluator.py": "ef21874bef5ee007a342a9192dd2bafcb3e29366ff99ce739d5f0afcae0eb768",
+    "worker/benchmarks/policy.py": "3282952b2de0e37ce769688b87d4052fd84be8bff9aa9f66c6b4151047120e46",
     "worker/benchmarks/runner.py": "d481e33fe07d4b7625724177b895d7d73043bb567ee70e2471f0e503aadd9383",
     "worker/benchmarks/scoring.py": "e45e72c2b409d92df666c65b0045f29b8dd955c0f9533b2c28f423caed202d11",
     "worker/benchmarks/tests.py": "efb49ce2ae9aabad29851b4ac66caf1f545325f924e8fa465d605aae4ce30494",
@@ -47,7 +47,7 @@
     "worker/tests/test_repeatability.py": "d2f3790b2fcf415bcf033af5cb3060527f914a1f89e6b44d42cfc3904ef0e8ff",
     "worker/tests/test_runner.py": "bdba83434b815150fb84fdc527a4e0d2b8c1e7d9089bb7defd543e7077f1cb06",
     "worker/tests/test_runtime_adapters.py": "33034327eff5bb774ebfa239a44049786ce113ccc25e89725d75479eaf260f0a",
-    "worker/tests/test_semantic_interpretation.py": "82b1c61d1053e7f12388e5c1f875131578a1902903c688c1c6fe692e39def35b",
+    "worker/tests/test_semantic_interpretation.py": "ccbb7f565a5131b2cb034f67b2bc210214095ca3181688156f31962964cea61e",
     "worker/tests/test_shadow.py": "9188e61867e1312ca49a2ffd55209c78868ac57fc87d49da6312d692c33e4903",
     "worker/tests/test_stage1_score_integrity.py": "48f4605c4fa7999ba073118d2610e9b3abcc4920ef689a4bf3441b3815b130c6",
     "worker/tests/test_stage2_contract_integrity.py": "ac64c39084c6572114c18efa8de6b217b469105465a4d40710ec9024774e4e60",
