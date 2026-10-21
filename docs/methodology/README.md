@@ -32,3 +32,5 @@ Start with the [independence charter](independence-charter.md) and
 Automated tests verify implementation behaviour. They cannot establish that
 reference labels are correct, that the samples represent deployed agents, that
 reviewers are independent, or that live production systems are reliable.
+
+See the [implementation verification report](../hardening/independent-programme-verification.md) for staged commits, automated test results and remaining blockers.

@@ -25,7 +25,9 @@ source or version mismatch fails closed. Do not download/execute source embedded
 in an untrusted manifest. A hash is an integrity commitment relative to a trusted
 copy, not a signature, trusted timestamp, identity proof or independent review.
 
-`validation_cases` input follows the versioned dataset schema. `crm_workflow`
+`validation_cases` input follows the versioned dataset schema. Generic export
+rejects held-out partitions; use the dedicated custodian release workflow, with
+held-out manifest export integration still pending. `crm_workflow`
 input is captured by the controlled bridge. `saved_score_rows` requires a
 `versions` object with evaluator_version, scoring_policy_version and
 benchmark_suite_version, plus `results` containing each planned test exactly

@@ -69,6 +69,8 @@ def replay_score(payload):
 def calculate(kind, payload):
     if kind == 'validation_cases':
         validate(payload)
+        if payload['partition'] == 'held_out':
+            raise ValueError('Held-out evidence must use the custodian release workflow; generic export is disabled')
         return {'case_verdicts': [{'id': c['id'], **evaluate_case(c)} for c in payload['cases']]}
     if kind == 'crm_workflow':
         return replay_workflow(payload)

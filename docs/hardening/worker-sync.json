@@ -1,5 +1,5 @@
 {
-  "canonical_base": "47ef0192f56fe19120b9159b419f142193bc890f",
+  "canonical_base": "e2598e3420c97d69b74a295a1a4a6fb34505ca8b",
   "files": {
     "worker/benchmarks/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "worker/benchmarks/evaluator.py": "f7c3b12699545199681cbf471368d5e0f553bfc29184b4b35bba3346ac7f9356",
@@ -34,6 +34,7 @@
     "worker/tests/test_conflicting_requirements.py": "082319b26378a1a7a87c049b7400bed650900788408f99841e31c89e741a0137",
     "worker/tests/test_evaluator_calibration.py": "af283c100bd2a9e8ff37113eb47ce420a0a96eab01d99735f2b118e25cdb8363",
     "worker/tests/test_evaluator_review.py": "b74609425f4c5a44c634686bc555fb61ccd398e7fa66f8e233afdd270974489c",
+    "worker/tests/test_external_evaluator_review.py": "00c1925d4755bc9738fd6d3623390cf0394fe7b8a615cc5869de3cd0dd37436c",
     "worker/tests/test_frontier_refusal_followup.py": "d8b24aa9b025d2a05ddc84dfc8ccac16c0b82517fa73c6c63c25d57650c78f87",
     "worker/tests/test_gradio_timeouts.py": "69f9efdacc8f5d8abc80813f3459db7d71ee9271952732db31d2efda11228117",
     "worker/tests/test_latest_run_regressions.py": "ea8f7466a51feb87c4f51b9f8621c56cbabecee139c84f0b5d1f86f32cfcb11a",
@@ -58,7 +59,17 @@
     "worker/tests/test_v214_live_contracts.py": "cde8a6bef432e30e6bcdd6533362239bff46a5bed426d86c63daf9b1015f9403",
     "worker/tests/test_v215_council_live_contracts.py": "b041ffee3612a99cde5201dcd84a154115f16f317d9ec1e1aa01e35251707b6b",
     "worker/tests/test_v221_run_replay.py": "079d3f93e3714553379098488ea64867ea1956744837a59f095ac16906dd2561",
+    "worker/tests/test_validation_datasets.py": "4d24eab16504cee251d22c554aecbd57cbcceca0048771cb44b3565e26d54834",
+    "worker/tests/test_validation_evidence.py": "8875e435d6d30b6d4a7900c7dd8bfd1f8f5095c67d9571668d8a223b27810072",
+    "worker/tests/test_validation_integration.py": "4cc42435f01df473d02798ee9f6083f9a8c88de90d4b6aa8cb265c4fe8e3fb14",
+    "worker/tests/test_validation_reporting.py": "80c148b6692438297dc5fdb6ef2823f8270f182a997a129d2222499637279046",
+    "worker/tests/test_validation_workflows.py": "91b13bdd99c26a4d29b8bea9bf846a9853ce25cf28e005c7c1e5d167dbbf28e3",
     "worker/tests/test_worker_auth.py": "3d59c1e7307630561a5615cbbe0de10370c1f067aeb28b6a5ef44bfe663ec885",
-    "worker/tests/test_worker_provenance.py": "5f8a543a6675480d71ca83e07cb52b03a189809e4d77458c16c933f5177361f9"
+    "worker/tests/test_worker_provenance.py": "5f8a543a6675480d71ca83e07cb52b03a189809e4d77458c16c933f5177361f9",
+    "worker/validation/__init__.py": "da2a5e1e75db2eef5c2222040e97497fcdbfb10b4e03a625f25d479a5ef53dc1",
+    "worker/validation/datasets.py": "0f4ce606385a119dd27d1555cc6e1c0779ee8aad04749fee06cb77ec011503f5",
+    "worker/validation/evidence.py": "1a26d6df1096358d4697755eb93a35e76203ca3a86e5d74794953919b9794513",
+    "worker/validation/reporting.py": "3ec5d869dfb36cdcb907d0e6fd31892526ddba82e0c3af2855f8ef854a3722eb",
+    "worker/validation/workflows.py": "f32ce468bd5d2041ab59a90ba866ad9ceffb7ddcb4fa11b10c457ed1f315d7f8"
   }
 }
