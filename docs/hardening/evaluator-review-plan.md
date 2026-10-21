@@ -52,3 +52,10 @@ labelled evidence to other agents/contracts before making a credibility claim.
 No benchmark questions, evaluator rules, weights, coverage thresholds or historical
 scores change in this stage. No live agents are called. A separate human reviewer
 is still required before describing this as independently validated scoring.
+
+## Structured external review workflow
+
+See [external-review-workflow.md](external-review-workflow.md) for blinded
+JSON packets, two-or-more reviewer submission templates, import validation and
+agreement analysis. The original dataset, labels and historical baseline above
+are preserved. External validation remains PENDING.
