@@ -1,121 +1,107 @@
 # BENCHRX
 
-**Independent production testing for AI agents.**
+A web application and Python worker for running behavioural benchmarks against AI agent endpoints.
 
-BENCHRX is a platform for benchmarking AI agents before they are trusted with real business systems.
+BENCHRX connects to an agent, runs a versioned test suite, records evidence and produces a scorecard covering task success, reliability and safety. The repository includes the submission interface, connector implementations, queue processing, deterministic evaluation, database migrations and regression tests.
 
-The goal is simple: give developers and companies an independent, repeatable way to understand whether an agent is reliable, safe, efficient and ready for production.
+## What is implemented
 
-## The problem
+- **Benchmark workflow:** agent submission and connection checks, persisted runs, operator review and public scorecard routes.
+- **Endpoint connectors:** generic HTTP, Gradio, A2A, LangGraph and OpenAI Agents integration code. Support depends on the target protocol and configuration; see the [compatibility matrix](docs/connectors/compatibility-matrix.md).
+- **Worker execution:** FastAPI endpoints and a dedicated queue process, with database leases and saved results for interrupted-run recovery.
+- **Evidence-aware scoring:** coverage checks, withheld scores when evidence is insufficient, and safety failures that block a positive benchmark verdict.
+- **Optional shadow judging:** AI-assisted judgments stored separately from deterministic public scores.
+- **Regression coverage:** TypeScript and Python tests, an HTTP smoke check and a worker synchronization check.
 
-AI agents are increasingly being connected to real systems such as CRMs, inboxes, payment platforms, databases, internal tools and codebases.
+These are source-code capabilities, not a statement that a particular deployment is running this revision.
 
-But an agent looking good in a demo does not prove that it will behave reliably in production.
+## How it fits together
 
-Teams need answers to questions like:
+| Component | Role |
+| --- | --- |
+| Next.js, React and TypeScript | Submission, operator interface, scorecards and connector API routes |
+| Python and FastAPI | Benchmark dispatch and execution |
+| Supabase / PostgreSQL | Agent records, queued runs, evidence, leases and publication views |
+| Deterministic evaluator | Test interpretation, coverage gates and score calculation |
+| Optional OpenAI judge | Separate shadow evaluation for comparison |
 
-- Does the agent actually complete the task correctly?
-- Does it behave consistently across repeated runs?
-- Does it respect permissions and boundaries?
-- Can it recover when tools or APIs fail?
-- Can it resist malicious or misleading instructions?
-- How much does a successful task cost?
-- How long does it take?
+The worker calls configured agent endpoints. It does not download and execute arbitrary agent repositories.
 
-BENCHRX is being built to answer those questions with independent benchmark runs and clear scorecards.
+## Run locally
 
-## V1
+Use Node.js 22 and Python 3.12 to match the repository's CI configuration.
 
-The first version is intentionally small.
-
-A developer submits an agent endpoint. BENCHRX runs a benchmark suite against it, evaluates the results and generates a public scorecard.
-
-Initial flow:
-
-```text
-Submit agent
-    ↓
-Run benchmark scenarios
-    ↓
-Evaluate responses and behaviour
-    ↓
-Calculate scores
-    ↓
-Publish shareable scorecard
+```sh
+git clone https://github.com/deangudgeon123-hub/BENCHRX.git
+cd BENCHRX
+npm ci
+npm run dev
 ```
 
-Initial benchmark areas:
+This starts the web application. Completing a benchmark also requires a configured Supabase database, compatible migrations, a worker and the required server secrets.
 
-- Task completion
-- Reliability
-- Safety
-- Hallucination resistance
-- Error handling
-- Efficiency
-- Latency
+For a Python environment, run:
 
-## Proposed V1 stack
+```sh
+python -m venv .venv
+```
 
-### Web application
+Activate it using the command for your shell, then:
 
-- Next.js
-- TypeScript
-- Tailwind CSS
-- Vercel
+```sh
+python -m pip install -r worker/requirements-dev.txt
+python -m uvicorn main:app --app-dir worker --host 0.0.0.0 --port 8000
+```
 
-### Data
+For a dedicated queue process:
 
-- Supabase
-- PostgreSQL
+```sh
+python worker/queue_worker.py
+```
 
-### Benchmark service
+When that process owns dispatch, set `BENCHRX_POLL_QUEUE=0` on the web worker service. Follow the [staging and testing guide](docs/hardening/TESTING.md) for the configuration and coordinated deployment requirements.
 
-- Python
-- FastAPI
-- pytest
-- DeepEval
-- Inspect AI where useful
+### Configuration
 
-### Execution
+The checked-in environment examples are starting points, not a complete staging configuration.
 
-V1 will benchmark controlled API endpoints rather than execute arbitrary user supplied repositories.
+| Service | Required configuration for connected operation |
+| --- | --- |
+| Next.js | `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `BENCHRX_ADMIN_TOKEN`, `BENCHRX_ADAPTER_SECRET`, `BENCHRX_APP_ORIGIN`, `BENCHMARK_API_URL`, `BENCHMARK_API_SECRET` |
+| Worker | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `BENCHMARK_API_SECRET` |
+| Worker using adapters | Matching `BENCHRX_ADAPTER_SECRET` and explicit `BENCHRX_ADAPTER_ORIGINS` |
+| Optional shadow judge | `OPENAI_API_KEY`; additional settings are in [worker/config.py](worker/config.py) |
 
-This keeps the first version simpler and safer while the core benchmark experience is validated.
+Use separate secrets for operator access, adapters and worker requests. The access controls require secrets of at least 32 characters. Keep service-role keys and other secrets server-side.
 
-## V1 success condition
+Endpoint execution requires public HTTPS targets; localhost is not a supported benchmark target. Adapter testing needs a matching HTTPS origin or tunnel. Protected Vercel previews also require the bypass configuration described in the staging guide.
 
-The first technical proof is complete when BENCHRX can:
+Review **all** files in [supabase/migrations](supabase/migrations) against the database's existing state. The older staging guide discusses migrations 001–006; the directory also contains a later result-classification migration. Do not blindly reapply migrations to an existing database. Branch names and deployment status in historical hardening notes describe those checkpoints, not necessarily the current deployment.
 
-1. Accept a real agent endpoint
-2. Run a repeatable benchmark suite
-3. Store the benchmark results
-4. Calculate useful scores
-5. Produce a public result page
-6. Explain exactly which tests passed and failed
+## Development checks
 
-The goal is not to build the whole platform at once.
+```sh
+npm test
+npm run typecheck
+npm run build
+node scripts/http-smoke.mjs
+python -m pytest -q
+python scripts/verify-worker-sync.py
+```
 
-**Build the proof before the empire.**
+Install the Python development requirements before running the Python checks. The HTTP smoke script expects the built application. These commands are documented checks, not a claim that they pass on every environment or revision.
 
-## Longer term direction
+## Reading the results
 
-If the core benchmark proves valuable, BENCHRX can expand into:
+A score describes the observations collected by a particular suite and evaluator version. It is not a certification, a general safety guarantee or proof of production readiness.
 
-- Category specific benchmark suites
-- Version regression testing
-- Public agent profiles
-- Verified badges
-- Agent rankings
-- Production certification
-- Private team benchmarks
-- Enterprise assurance and governance
-- Agent registry and discovery
-- Deployment and marketplace infrastructure
+The evaluator is still being refined. The [v2.37 review](docs/hardening/evaluator-v2.37.md) records remaining work on evidence interpretation, valid refusals, uncertainty responses and broader independent labeling. Fixture-based connector tests also do not establish compatibility with every live deployment.
 
-## Status
+## Documentation
 
-Early development.
-
-The immediate priority is the V1 benchmark engine and scorecard experience.
-
-<!-- deployment trigger: 2026-08-28 -->
+- [Architecture and source map](docs/ARCHITECTURE.md)
+- [Connector compatibility and evidence](docs/connectors/compatibility-matrix.md)
+- [OpenAI Agents connector](docs/connectors/openai-agents.md)
+- [Local checks and staging configuration](docs/hardening/TESTING.md)
+- [Evaluator v2.37 review](docs/hardening/evaluator-v2.37.md)
+- [Original V1 scope](docs/V1_SCOPE.md) — historical planning, not the current implementation specification
