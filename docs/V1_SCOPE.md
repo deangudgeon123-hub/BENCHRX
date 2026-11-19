@@ -1,3 +1,5 @@
+> **Historical planning document.** This file records the original V1 scope. Its proposed routes, scoring weights and implementation priorities are not the current specification. See the [README](../README.md), [architecture](ARCHITECTURE.md) and [implemented scoring policy](../worker/benchmarks/policy.py) for the current source-based overview.
+
 # BENCHRX V1 Scope
 
 ## Objective
